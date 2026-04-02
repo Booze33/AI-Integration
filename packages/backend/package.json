@@ -4,13 +4,23 @@
   "private": true,
   "scripts": {
     "dev": "ts-node-dev --respawn src/index.ts",
-    "build": "tsc"
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "seed": "ts-node src/database/seeds/run-seed.ts",
+    "migrate": "node-pg-migrate",
+    "migrate:up": "node-pg-migrate up",
+    "migrate:down": "node-pg-migrate down",
+    "migrate:create": "node-pg-migrate create",
+    "migrate:status": "node-pg-migrate status"
   },
   "dependencies": {
-    "express": "^4.22.1"
+    "express": "^4.22.1",
+    "node-pg-migrate": "^8.0.4",
+    "pg": "^8.20.0"
   },
   "devDependencies": {
     "@types/express": "^4.17.21",
+    "@types/pg": "^8.20.0",
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.3.3"
   }
