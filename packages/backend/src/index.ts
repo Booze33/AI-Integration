@@ -1,8 +1,12 @@
 import express from 'express';
 import { Pool } from 'pg';
 import { runMigrations } from './database/migrate';
+import { authRoutes } from './auth';
 
 const app = express();
+
+// Middleware
+app.use(express.json());
 
 // Database connection for health checks
 const pool = new Pool({
@@ -11,6 +15,9 @@ const pool = new Pool({
   idleTimeoutMillis: 10000,
   connectionTimeoutMillis: 2000,
 });
+
+// Auth routes
+app.use('/auth', authRoutes);
 
 // Basic health check (for load balancers)
 app.get('/health', (_, res) => res.json({ status: 'ok' }));
