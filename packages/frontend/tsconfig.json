@@ -19,7 +19,8 @@
       }
     ],
     "paths": {
-      "@/*": ["./*"]
+      "@/*": ["./src/*"],
+      "@ai-integration/types": ["../types/src"]
     }
   },
   "include": [

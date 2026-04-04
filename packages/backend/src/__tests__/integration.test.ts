@@ -160,20 +160,20 @@ vi.mock('../pipeline/pipeline', () => ({
 // ---------------------------------------------------------------------------
 
 async function buildApp() {
-  const { requestLogger } = await import('../logger');
-  const { webhookRoutes } = await import('../webhook');
-  const { createRateLimiter } = await import('../rate-limit');
-  const { default: authRoutesDefault } = await import('../auth/routes');
-  const { chatRoutes } = await import('../chat');
-  const { pipelineRoutes } = await import('../pipeline');
-  const { notFoundHandler, errorHandler } = await import('../errors');
+  const { requestLogger } = await import('../logger/index.js');
+  const { webhookRoutes } = await import('../webhook/index.js');
+  const { createRateLimiter } = await import('../rate-limit/index.js');
+  const { authRoutes } = await import('../auth/routes.js');
+  const { chatRoutes } = await import('../chat/index.js');
+  const { pipelineRoutes } = await import('../pipeline/index.js');
+  const { notFoundHandler, errorHandler } = await import('../errors/index.js');
 
   const app = express();
   app.use(requestLogger({ write: () => {} })); // suppress log noise in tests
   app.use('/api', webhookRoutes);
   app.use(express.json());
   app.use('/api', ...createRateLimiter());
-  app.use('/auth', authRoutesDefault);
+  app.use('/auth', authRoutes);
   app.use('/api', chatRoutes);
   app.use('/api/pipeline', pipelineRoutes);
   app.get('/health', (_req, res) => res.json({ status: 'ok' }));
@@ -290,7 +290,7 @@ describe('Integration Tests', () => {
     });
 
     it('returns 500 when Redis (storeRefreshToken) throws', async () => {
-      const { storeRefreshToken } = await import('../redis/client');
+      const { storeRefreshToken } = await import('../redis/client.js');
       (storeRefreshToken as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
         new Error('Redis connection refused')
       );

@@ -17,18 +17,22 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@ai-integration/types": "workspace:*",
     "@types/multer": "^2.1.0",
+    "axios": "^1.6.5",
     "bcryptjs": "^3.0.3",
     "bull": "^4.16.5",
     "bullmq": "^5.73.0",
     "express": "^4.22.1",
+    "express-validator": "^7.2.0",
     "jsonwebtoken": "^9.0.3",
     "mammoth": "^1.12.0",
     "multer": "^2.1.1",
     "node-pg-migrate": "^8.0.4",
     "pdf-parse": "^2.4.5",
     "pg": "^8.20.0",
-    "redis": "^5.11.0"
+    "redis": "^5.11.0",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/bcryptjs": "^3.0.0",

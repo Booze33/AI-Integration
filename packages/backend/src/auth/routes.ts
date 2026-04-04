@@ -9,6 +9,8 @@ import {
   revokeAllUserTokens,
   getUserActiveTokens,
 } from '../redis/client';
+import { InputSanitizer } from '../audit';
+import { randomUUID as crypto_randomUUID } from 'crypto';
 
 const router: Router = Router();
 
@@ -29,10 +31,14 @@ const users: Map<string, User> = new Map();
  */
 router.post('/register', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { email, password, role = 'user' } = req.body;
+    // Sanitize inputs
+    const { email: rawEmail, password, role = 'user' } = req.body;
+    const email = InputSanitizer.sanitizeEmail(rawEmail);
+    const sanitizedPassword = InputSanitizer.sanitizeText(password, { maxLength: 100 });
+    const sanitizedRole = InputSanitizer.sanitizeText(role, { maxLength: 50 });
 
     // Validate input
-    if (!email || !password) {
+    if (!email || !sanitizedPassword) {
       res.status(400).json({
         error: 'Bad Request',
         message: 'Email and password are required',
@@ -40,18 +46,8 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    // Validate email format
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
-      res.status(400).json({
-        error: 'Bad Request',
-        message: 'Invalid email format',
-      });
-      return;
-    }
-
     // Validate password strength
-    if (password.length < 8) {
+    if (sanitizedPassword.length < 8) {
       res.status(400).json({
         error: 'Bad Request',
         message: 'Password must be at least 8 characters long',
@@ -70,14 +66,14 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
 
     // Hash password
     const salt = await bcrypt.genSalt(12);
-    const passwordHash = await bcrypt.hash(password, salt);
+    const passwordHash = await bcrypt.hash(sanitizedPassword, salt);
 
     // Create user
     const user: User = {
-      id: crypto.randomUUID(),
+      id: crypto_randomUUID(),
       email,
       passwordHash,
-      role,
+      role: sanitizedRole,
       createdAt: new Date(),
     };
 
@@ -120,7 +116,10 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
  */
 router.post('/login', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { email, password } = req.body;
+    // Sanitize inputs
+    const { email: rawEmail, password: rawPassword } = req.body;
+    const email = InputSanitizer.sanitizeEmail(rawEmail);
+    const password = InputSanitizer.sanitizeText(rawPassword, { maxLength: 100 });
 
     // Validate input
     if (!email || !password) {
@@ -188,17 +187,31 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
  */
 router.post('/refresh', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { refreshToken } = req.body;
-
-    if (!refreshToken) {
-      res.status(400).json({
-        error: 'Bad Request',
-        message: 'Refresh token is required',
+    const cookieHeader = req.headers.cookie;
+    if (!cookieHeader) {
+      res.status(401).json({
+        error: 'Unauthorized',
+        message: 'Refresh token cookie is required',
       });
       return;
     }
 
-    // Verify JWT signature
+    const cookies = Object.fromEntries(
+      cookieHeader.split(';').map((c) => {
+        const [k, ...v] = c.trim().split('=');
+        return [decodeURIComponent(k), decodeURIComponent(v.join('='))];
+      })
+    ) as Record<string, string>;
+
+    const refreshToken = cookies.refreshToken;
+    if (!refreshToken) {
+      res.status(401).json({
+        error: 'Unauthorized',
+        message: 'Refresh token cookie is required',
+      });
+      return;
+    }
+
     let decoded: DecodedRefreshToken;
     try {
       decoded = verifyToken(refreshToken) as DecodedRefreshToken;
@@ -210,7 +223,6 @@ router.post('/refresh', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    // Verify token exists in Redis
     const storedUserId = await verifyRefreshToken(decoded.tokenId);
     if (!storedUserId || storedUserId !== decoded.userId) {
       res.status(401).json({
@@ -220,7 +232,6 @@ router.post('/refresh', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    // Generate new token pair
     const payload: TokenPayload = {
       userId: decoded.userId,
       email: decoded.email,
@@ -233,14 +244,25 @@ router.post('/refresh', async (req: Request, res: Response): Promise<void> => {
       tokenId: newTokenId,
     } = generateTokenPair(payload);
 
-    // Revoke old refresh token and store new one
     await revokeRefreshToken(decoded.tokenId);
     await storeRefreshToken(decoded.userId, newTokenId, 7 * 24 * 60 * 60);
 
+    const cookieOptions = {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax' as const,
+      path: '/',
+    };
+
+    res.cookie('accessToken', accessToken, { ...cookieOptions, maxAge: 15 * 60 * 1000 });
+    res.cookie('refreshToken', newRefreshToken, {
+      ...cookieOptions,
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
+
     res.json({
       message: 'Tokens refreshed successfully',
-      accessToken,
-      refreshToken: newRefreshToken,
+      user: { userId: payload.userId, email: payload.email, role: payload.role },
     });
   } catch (error) {
     console.error('Token refresh error:', error);
@@ -289,7 +311,18 @@ router.get('/me', authenticate as any, (req: AuthenticatedRequest, res: Response
  */
 router.post('/logout', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { refreshToken } = req.body;
+    const cookieHeader = req.headers.cookie;
+    let refreshToken: string | undefined;
+
+    if (cookieHeader) {
+      const cookies = Object.fromEntries(
+        cookieHeader.split(';').map((c) => {
+          const [k, ...v] = c.trim().split('=');
+          return [decodeURIComponent(k), decodeURIComponent(v.join('='))];
+        })
+      ) as Record<string, string>;
+      refreshToken = cookies.refreshToken;
+    }
 
     if (refreshToken) {
       try {
@@ -300,11 +333,36 @@ router.post('/logout', async (req: Request, res: Response): Promise<void> => {
       }
     }
 
+    const cookieOptions = {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax' as const,
+      path: '/',
+      maxAge: 0,
+    };
+
+    res.cookie('accessToken', '', cookieOptions);
+    res.cookie('refreshToken', '', cookieOptions);
+
     res.json({
       message: 'Logged out successfully',
     });
   } catch (error) {
     console.error('Logout error:', error);
+    res.cookie('accessToken', '', {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      path: '/',
+      maxAge: 0,
+    });
+    res.cookie('refreshToken', '', {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      path: '/',
+      maxAge: 0,
+    });
     res.json({
       message: 'Logged out successfully',
     });
@@ -420,4 +478,4 @@ router.delete(
   }
 );
 
-export default router;
+export { router as authRoutes };

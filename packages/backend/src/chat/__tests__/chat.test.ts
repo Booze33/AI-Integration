@@ -173,7 +173,7 @@ describe('Chat Endpoint - Error Handling', () => {
 
   it('should handle provider errors gracefully', async () => {
     // Mock provider to throw error after yielding
-    const { getProvider } = await import('../../providers');
+    const { getProvider } = await import('../../providers/index.js');
     vi.mocked(getProvider).mockReturnValueOnce({
       name: 'error-provider',
       supportedModels: ['error-model'],

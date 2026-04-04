@@ -7,13 +7,7 @@
 
 import { Pool } from 'pg';
 import path from 'path';
-
-// Dynamic import to handle node-pg-migrate
-async function getMigrationRunner() {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const migrationRunner = require('node-pg-migrate');
-  return migrationRunner.default || migrationRunner;
-}
+import { runner } from 'node-pg-migrate';
 
 export interface MigrationConfig {
   databaseUrl: string;
@@ -29,7 +23,7 @@ export interface MigrationConfig {
 const DEFAULT_CONFIG: Partial<MigrationConfig> = {
   schema: 'public',
   migrationsTable: 'pgmigrations',
-  dir: path.join(__dirname, 'migrations'),
+  dir: path.join(process.cwd(), 'src', 'database', 'migrations'), // More robust default
   direction: 'up',
   verbose: process.env.NODE_ENV === 'development',
 };
@@ -40,30 +34,35 @@ const DEFAULT_CONFIG: Partial<MigrationConfig> = {
 export async function runMigrations(config: MigrationConfig): Promise<void> {
   const migrationConfig = { ...DEFAULT_CONFIG, ...config };
 
+  // Validate required config
+  if (!migrationConfig.databaseUrl) {
+    throw new Error('Database URL is required for migrations');
+  }
+
   const pool = new Pool({
     connectionString: migrationConfig.databaseUrl,
   });
 
+  const client = await pool.connect();
+
   try {
     console.log('🔄 Running database migrations...');
 
-    const runner = await getMigrationRunner();
-    const result = await runner({
-      databaseClient: pool,
-      migrationsTable: migrationConfig.migrationsTable,
-      dir: migrationConfig.dir,
-      direction: migrationConfig.direction,
+    // Use dbClient (correct option name for node-pg-migrate)
+    await runner({
+      dbClient: client,
+      migrationsTable: migrationConfig.migrationsTable ?? 'pgmigrations',
+      dir: migrationConfig.dir ?? path.join(process.cwd(), 'src', 'database', 'migrations'),
+      direction: migrationConfig.direction ?? 'up',
       count: migrationConfig.count,
       dryRun: migrationConfig.dryRun,
       verbose: migrationConfig.verbose,
       log: (msg: string) => console.log(`  ${msg}`),
     });
 
-    if (result.length === 0) {
-      console.log('✅ No pending migrations');
-    } else {
-      console.log(`✅ Successfully ran ${result.length} migration(s)`);
-    }
+    // Check if any migrations were applied
+    // Note: migrate() returns the list of migrated migrations, but we don't need it for logging
+    console.log('✅ Migrations completed successfully');
   } catch (error) {
     console.error('❌ Migration failed:', error);
     throw error;
@@ -81,14 +80,23 @@ export async function createMigration(
 ): Promise<void> {
   const dir = config?.dir || DEFAULT_CONFIG.dir;
 
+  if (!dir) {
+    throw new Error('Migrations directory not specified');
+  }
+
   console.log(`📝 Creating migration: ${name}`);
 
-  // Use node-pg-migrate CLI to create migration
   const { execSync } = await import('child_process');
 
-  execSync(`npx node-pg-migrate create ${name} --migrations-dir ${dir}`, { stdio: 'inherit' });
-
-  console.log('✅ Migration file created');
+  try {
+    execSync(`npx node-pg-migrate create ${name} --migrations-dir ${dir}`, {
+      stdio: 'inherit',
+    });
+    console.log(`✅ Migration file created at ${dir}/${name}`);
+  } catch (error) {
+    console.error(`❌ Failed to create migration: ${error}`);
+    throw error;
+  }
 }
 
 export default { runMigrations, createMigration };

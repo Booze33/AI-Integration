@@ -1,0 +1,67 @@
+# Security: Exclude unnecessary files from Docker build context
+# This reduces attack surface and build time
+
+# Version control
+.git
+.gitignore
+.gitattributes
+
+# Documentation
+README.md
+CONTRIBUTING.md
+LICENSE
+CHANGELOG.md
+*.md
+docs/
+
+# Development
+.env.local
+.env.*.local
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+.vscode/settings.json
+
+# Node
+node_modules/
+npm-debug.log
+yarn-error.log
+pnpm-debug.log
+
+# Build artifacts
+dist/
+build/
+.next/
+out/
+*.tgz
+
+# Tests
+coverage/
+.nyc_output/
+*.test.ts
+*.test.js
+__tests__/
+jest.config.js
+vitest.config.ts
+
+# CI/CD
+.github/workflows/
+.gitlab-ci.yml
+.travis.yml
+Jenkinsfile
+
+# Tools
+.husky/
+.lint-staged.json
+.prettierrc
+.eslintignore
+
+# Misc
+.docker/
+docker-compose.override.yml
+.env.example
+*.log
+*.trace

@@ -185,7 +185,7 @@ export class QueueService {
    * Setup event handlers
    */
   private setupEventHandlers(): void {
-    this.queueEvents.on('completed', ({ jobId, _returnvalue }) => {
+    this.queueEvents.on('completed', ({ jobId, returnvalue: _returnvalue }) => {
       console.log(`Job ${jobId} completed successfully`);
       this.notifyStatusListeners(jobId, 'completed');
     });

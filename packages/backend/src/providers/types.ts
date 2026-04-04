@@ -148,6 +148,27 @@ export interface AIProvider {
   ): Promise<TranscribeResponse>;
 
   /**
+   * Create real-time transcription session
+   * For streaming audio transcription
+   */
+  createRealtimeSession?(
+    options?: TranscribeOptions & {
+      onTranscription?: (result: {
+        transcript: string;
+        isFinal: boolean;
+        confidence?: number;
+        words?: any[];
+      }) => void;
+      onError?: (error: Error) => void;
+      onClose?: () => void;
+    }
+  ): Promise<{
+    send: (audio: Buffer | ArrayBuffer) => void;
+    close: () => void;
+    getState: () => any;
+  }>;
+
+  /**
    * Text-to-speech synthesis
    * Convert text to audio
    */

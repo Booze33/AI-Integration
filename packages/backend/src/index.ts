@@ -5,11 +5,28 @@ import { authRoutes } from './auth';
 import { chatRoutes } from './chat';
 import { pipelineRoutes } from './pipeline';
 import { webhookRoutes } from './webhook';
+import { tenantConfigRoutes } from './providers/routes';
 import { createRateLimiter } from './rate-limit';
 import { requestLogger } from './logger';
 import { notFoundHandler, errorHandler } from './errors';
+import {
+  validateEnv,
+  printEnvConfig,
+  getClientInfo,
+  AuditService,
+  createAuditService,
+} from './audit';
+
+// ---------------------------------------------------------------------------
+// Validate environment variables on startup
+// ---------------------------------------------------------------------------
+const env = validateEnv();
+printEnvConfig();
 
 const app = express();
+
+// Global audit service (injected into requests for tracking)
+let auditService: AuditService | null = null;
 
 // ---------------------------------------------------------------------------
 // Request logger — MUST be the first middleware so every request receives a
@@ -21,6 +38,17 @@ app.use(
     skip: (req) => req.path === '/health',
   })
 );
+
+// ---------------------------------------------------------------------------
+// Audit logging middleware — attach audit service and client info to request
+// ---------------------------------------------------------------------------
+app.use((req, res, next) => {
+  if (auditService) {
+    (req as any).auditService = auditService;
+    (req as any).clientInfo = getClientInfo(req);
+  }
+  next();
+});
 
 // ---------------------------------------------------------------------------
 // Webhook routes — must be mounted BEFORE express.json() so that the
@@ -42,9 +70,9 @@ app.use('/api', ...createRateLimiter());
 
 // Database connection for health checks
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL || 'postgresql://localhost:5432/myapp',
-  max: 2, // Minimal pool for health checks
-  idleTimeoutMillis: 10000,
+  connectionString: env.DATABASE_URL,
+  max: 20,
+  idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 2000,
 });
 
@@ -56,6 +84,9 @@ app.use('/api', chatRoutes);
 
 // Pipeline routes (file upload and processing)
 app.use('/api/pipeline', pipelineRoutes);
+
+// Tenant configuration routes (AI provider settings)
+app.use('/api/tenant', tenantConfigRoutes);
 
 // Basic health check (for load balancers)
 app.get('/health', (_, res) => res.json({ status: 'ok' }));
@@ -167,19 +198,25 @@ app.use(errorHandler);
 async function startServer() {
   try {
     // Run database migrations on startup
-    const databaseUrl = process.env.DATABASE_URL || 'postgresql://localhost:5432/myapp';
+    const databaseUrl = env.DATABASE_URL;
 
     await runMigrations({
       databaseUrl,
       dir: __dirname + '/database/migrations',
       direction: 'up',
-      verbose: process.env.NODE_ENV === 'development',
+      verbose: env.NODE_ENV === 'development',
     });
 
+    // Initialize audit service if enabled
+    if (env.ENABLE_AUDIT_LOGGING) {
+      auditService = createAuditService(pool);
+      console.log('✅ Audit logging initialized');
+    }
+
     // Start Express server
-    const port = parseInt(process.env.PORT || '3001', 10);
-    app.listen(port, () => {
-      console.log(`🚀 Backend running on :${port}`);
+    const port = env.PORT;
+    app.listen(port, env.HOST, () => {
+      console.log(`🚀 Backend running on http://${env.HOST}:${port}`);
       console.log(`📊 Health check: http://localhost:${port}/health`);
     });
   } catch (error) {

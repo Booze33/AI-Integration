@@ -65,10 +65,12 @@ export class TenantAIConfigService {
     keyLength: 32,
     ivLength: 16,
   };
+  private readonly repository: TenantAIConfigRepository;
 
-  constructor(encryptionKey: string) {
+  constructor(encryptionKey: string, repository: TenantAIConfigRepository) {
     // Ensure key is exactly 32 bytes for AES-256
     this.encryptionKey = Buffer.from(encryptionKey.padEnd(32, '0').slice(0, 32), 'utf8');
+    this.repository = repository;
   }
 
   /**
@@ -141,12 +143,98 @@ export class TenantAIConfigService {
 
     return errors;
   }
+
+  /**
+   * Find configuration by ID
+   */
+  async findById(id: string): Promise<TenantAIConfig | null> {
+    return this.repository.findById(id);
+  }
+
+  /**
+   * Find configuration by tenant and provider
+   */
+  async findByTenantAndProvider(
+    tenantId: string,
+    provider: ProviderName
+  ): Promise<TenantAIConfig | null> {
+    return this.repository.findByTenantAndProvider(tenantId, provider);
+  }
+
+  /**
+   * Find all active configurations for a tenant
+   */
+  async findActiveByTenant(tenantId: string): Promise<TenantAIConfig[]> {
+    return this.repository.findActiveByTenant(tenantId);
+  }
+
+  /**
+   * Create a new tenant AI configuration
+   */
+  async create(
+    tenantId: string,
+    input: TenantAIConfigInput,
+    createdBy: string
+  ): Promise<TenantAIConfig> {
+    // Validate input
+    const errors = this.validateInput(input);
+    if (errors.length > 0) {
+      throw new Error(`Validation failed: ${errors.join(', ')}`);
+    }
+
+    // Encrypt the API key
+    const { encrypted } = this.encryptApiKey(input.api_key);
+
+    // Create the configuration with encrypted data
+    const configInput = {
+      ...input,
+      api_key: encrypted, // This will be stored as api_key_encrypted
+    };
+
+    return this.repository.create(tenantId, configInput, createdBy);
+  }
+
+  /**
+   * Update an existing tenant AI configuration
+   */
+  async update(
+    id: string,
+    input: Partial<TenantAIConfigInput>,
+    updatedBy: string
+  ): Promise<TenantAIConfig> {
+    // If API key is being updated, encrypt it
+    let configInput = input;
+    if (input.api_key) {
+      const { encrypted } = this.encryptApiKey(input.api_key);
+      configInput = {
+        ...input,
+        api_key: encrypted,
+      };
+    }
+
+    return this.repository.update(id, configInput, updatedBy);
+  }
+
+  /**
+   * Deactivate a tenant AI configuration
+   */
+  async deactivate(id: string, updatedBy: string): Promise<void> {
+    return this.repository.deactivate(id, updatedBy);
+  }
+
+  /**
+   * Delete a tenant AI configuration
+   */
+  async delete(id: string): Promise<void> {
+    return this.repository.delete(id);
+  }
 }
 
 /**
  * Database operations interface (to be implemented with actual DB client)
  */
 export interface TenantAIConfigRepository {
+  findById(id: string): Promise<TenantAIConfig | null>;
   findByTenantAndProvider(tenantId: string, provider: ProviderName): Promise<TenantAIConfig | null>;
   findActiveByTenant(tenantId: string): Promise<TenantAIConfig[]>;
   create(tenantId: string, input: TenantAIConfigInput, createdBy: string): Promise<TenantAIConfig>;
@@ -165,6 +253,10 @@ export interface TenantAIConfigRepository {
 export class InMemoryTenantAIConfigRepository implements TenantAIConfigRepository {
   private configs: Map<string, TenantAIConfig> = new Map();
   private idCounter = 0;
+
+  async findById(id: string): Promise<TenantAIConfig | null> {
+    return this.configs.get(id) || null;
+  }
 
   async findByTenantAndProvider(
     tenantId: string,
@@ -196,13 +288,14 @@ export class InMemoryTenantAIConfigRepository implements TenantAIConfigRepositor
     const id = `config-${++this.idCounter}`;
     const now = new Date();
 
-    // This would use the service to encrypt in real implementation
+    // For in-memory implementation, we'll store the API key as-is
+    // In a real implementation, this would already be encrypted by the service
     const config: TenantAIConfig = {
       id,
       tenant_id: tenantId,
       provider: input.provider,
-      api_key_encrypted: '', // Would be encrypted
-      api_key_iv: '', // Would be generated
+      api_key_encrypted: input.api_key, // In real impl this would be encrypted
+      api_key_iv: 'dummy-iv', // In real impl this would be generated
       base_url: input.base_url,
       organization: input.organization,
       default_model: input.default_model,
@@ -258,6 +351,10 @@ export class InMemoryTenantAIConfigRepository implements TenantAIConfigRepositor
 /**
  * Factory function to create tenant config service
  */
-export function createTenantAIConfigService(encryptionKey: string): TenantAIConfigService {
-  return new TenantAIConfigService(encryptionKey);
+export function createTenantAIConfigService(
+  encryptionKey: string,
+  repository?: TenantAIConfigRepository
+): TenantAIConfigService {
+  const repo = repository || new InMemoryTenantAIConfigRepository();
+  return new TenantAIConfigService(encryptionKey, repo);
 }

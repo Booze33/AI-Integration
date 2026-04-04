@@ -1,5 +1,79 @@
 import { Request, Response, NextFunction } from 'express';
-import { verifyToken, TokenPayload } from './jwt';
+import { verifyToken, TokenPayload, DecodedRefreshToken, generateTokenPair } from './jwt';
+import { verifyRefreshToken, revokeRefreshToken, storeRefreshToken } from '../redis/client';
+
+function parseCookies(cookieHeader: string | undefined): Record<string, string> {
+  const cookies: Record<string, string> = {};
+  if (!cookieHeader) return cookies;
+
+  for (const pair of cookieHeader.split(';')) {
+    const [rawKey, ...rawValue] = pair.trim().split('=');
+    if (!rawKey) continue;
+    const key = decodeURIComponent(rawKey.trim());
+    const value = decodeURIComponent((rawValue || []).join('=').trim());
+    if (key) {
+      cookies[key] = value;
+    }
+  }
+
+  return cookies;
+}
+
+function setTokenCookies(res: Response, accessToken: string, refreshToken: string): void {
+  const cookieOptions = {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax' as const,
+    path: '/',
+  };
+  const accessMaxAge = 15 * 60 * 1000;
+  const refreshMaxAge = 7 * 24 * 60 * 60 * 1000;
+
+  res.cookie('accessToken', accessToken, {
+    ...cookieOptions,
+    maxAge: accessMaxAge,
+  });
+
+  res.cookie('refreshToken', refreshToken, {
+    ...cookieOptions,
+    maxAge: refreshMaxAge,
+  });
+}
+
+async function refreshUsingCookie(req: Request, res: Response): Promise<TokenPayload | null> {
+  const cookies = parseCookies(req.headers.cookie);
+  const refreshToken = cookies.refreshToken;
+
+  if (!refreshToken) return null;
+
+  let decoded: DecodedRefreshToken;
+  try {
+    decoded = verifyToken(refreshToken) as DecodedRefreshToken;
+  } catch {
+    return null;
+  }
+
+  const stored = await verifyRefreshToken(decoded.tokenId);
+  if (!stored || stored !== decoded.userId) {
+    return null;
+  }
+
+  const payload: TokenPayload = {
+    userId: decoded.userId,
+    email: decoded.email,
+    role: decoded.role,
+    tenantId: decoded.tenantId,
+  };
+
+  const { accessToken, refreshToken: newRefreshToken, tokenId } = generateTokenPair(payload);
+
+  await revokeRefreshToken(decoded.tokenId);
+  await storeRefreshToken(payload.userId, tokenId, 7 * 24 * 60 * 60);
+
+  setTokenCookies(res, accessToken, newRefreshToken);
+
+  return payload;
+}
 
 // Define role hierarchy and permissions
 export enum Role {
@@ -25,40 +99,49 @@ export interface AuthenticatedRequest extends Request {
  * Authentication middleware
  * Verifies JWT token from Authorization header
  */
-export function authenticate(req: AuthenticatedRequest, res: Response, next: NextFunction): void {
+export async function authenticate(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
   const authHeader = req.headers.authorization;
 
-  if (!authHeader) {
-    res.status(401).json({
-      error: 'Unauthorized',
-      message: 'No authorization header provided',
-    });
-    return;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const token = authHeader.split(' ')[1];
+
+    try {
+      const decoded = verifyToken(token);
+      req.user = decoded;
+      return next();
+    } catch (error) {
+      // Attempt refresh if expired
+      if ((error as any)?.name === 'TokenExpiredError') {
+        const refreshed = await refreshUsingCookie(req, res);
+        if (refreshed) {
+          req.user = refreshed;
+          return next();
+        }
+      }
+      const message = error instanceof Error ? error.message : 'Invalid token';
+      res.status(401).json({
+        error: 'Unauthorized',
+        message,
+      });
+      return;
+    }
   }
 
-  // Check for Bearer token format
-  const parts = authHeader.split(' ');
-  if (parts.length !== 2 || parts[0] !== 'Bearer') {
-    res.status(401).json({
-      error: 'Unauthorized',
-      message: 'Invalid authorization header format. Use: Bearer <token>',
-    });
-    return;
+  // Try cookie refresh path as fallback
+  const refreshed = await refreshUsingCookie(req, res);
+  if (refreshed) {
+    req.user = refreshed;
+    return next();
   }
 
-  const token = parts[1];
-
-  try {
-    const decoded = verifyToken(token);
-    req.user = decoded;
-    next();
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Invalid token';
-    res.status(401).json({
-      error: 'Unauthorized',
-      message,
-    });
-  }
+  res.status(401).json({
+    error: 'Unauthorized',
+    message: 'Authentication required',
+  });
 }
 
 /**
