@@ -16,6 +16,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import request from 'supertest';
 import express, { Request, Response, NextFunction } from 'express';
+import { Pool } from 'pg';
 import crypto from 'crypto';
 
 // ---------------------------------------------------------------------------
@@ -163,12 +164,20 @@ async function buildApp() {
   const { requestLogger } = await import('../logger/index.js');
   const { webhookRoutes } = await import('../webhook/index.js');
   const { createRateLimiter } = await import('../rate-limit/index.js');
-  const { authRoutes } = await import('../auth/routes.js');
+  const { authRoutes, setAuthPool } = await import('../auth/routes.js');
   const { chatRoutes } = await import('../chat/index.js');
   const { pipelineRoutes } = await import('../pipeline/index.js');
   const { notFoundHandler, errorHandler } = await import('../errors/index.js');
 
   const app = express();
+  const authPool = new Pool({
+    connectionString: process.env.DATABASE_URL || 'postgresql://localhost:5432/test',
+    max: 2,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 2000,
+  });
+  setAuthPool(authPool);
+
   app.use(requestLogger({ write: () => {} })); // suppress log noise in tests
   app.use('/api', webhookRoutes);
   app.use(express.json());

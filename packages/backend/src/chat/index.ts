@@ -15,6 +15,15 @@ import { getProvider, ChatMessage, ChatOptions } from '../providers';
 import { randomUUID } from 'crypto';
 import { Pool } from 'pg';
 import { authenticate, requireViewer, AuthenticatedRequest } from '../auth/middleware';
+import {
+  storeStreamState,
+  getStreamState,
+  deleteStreamState,
+  addStreamChunk,
+  markStreamFinished,
+  StreamState,
+  cleanupOldStreams,
+} from '../redis/stream-store';
 
 async function ensureChatHistoryTable(pool: Pool): Promise<void> {
   await pool.query(`
@@ -55,30 +64,19 @@ async function getChatHistory(pool: Pool, userId: string): Promise<any[]> {
 }
 
 /**
- * In-memory store for resumable streams
- * In production, use Redis or a similar store for distributed systems
+ * Redis-based store for resumable streams
+ * Using Redis enables multi-instance support and automatic TTL-based cleanup
+ *
+ * Note: The StreamState interface is imported from '../redis/stream-store'
  */
-interface StreamState {
-  id: string;
-  messages: ChatMessage[];
-  options?: ChatOptions;
-  chunks: string[];
-  finished: boolean;
-  error?: string;
-  createdAt: number;
-}
 
-const streamStore = new Map<string, StreamState>();
-
-// Cleanup old streams every 5 minutes
+// Cleanup old streams (Redis TTL handles this automatically)
+// Keep the interval for compatibility, but it just logs that Redis handles cleanup
 setInterval(
   () => {
-    const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
-    for (const [id, state] of streamStore.entries()) {
-      if (state.createdAt < fiveMinutesAgo) {
-        streamStore.delete(id);
-      }
-    }
+    cleanupOldStreams().catch((error) => {
+      console.error('Error during stream cleanup:', error);
+    });
   },
   5 * 60 * 1000
 );
@@ -185,7 +183,7 @@ export function createChatRoutes(pool: Pool): ExpressRouter {
       const reconnectStreamId = lastEventId || body.streamId;
 
       if (reconnectStreamId) {
-        const existingStream = streamStore.get(reconnectStreamId);
+        const existingStream = await getStreamState(reconnectStreamId);
         if (existingStream) {
           // Resume existing stream
           await resumeStream(req, res, existingStream);
@@ -372,12 +370,10 @@ export function createChatRoutes(pool: Pool): ExpressRouter {
         res.json({ success: true });
       } catch (error) {
         console.error('Transcription send error:', error);
-        res
-          .status(500)
-          .json({
-            error: 'Failed to send audio data',
-            message: error instanceof Error ? error.message : 'Unknown error',
-          });
+        res.status(500).json({
+          error: 'Failed to send audio data',
+          message: error instanceof Error ? error.message : 'Unknown error',
+        });
       }
     }
   );
@@ -567,7 +563,7 @@ async function startNewStream(
     stream: true,
   };
 
-  // Store stream state for reconnect support
+  // Store stream state for reconnect support in Redis
   const streamState: StreamState = {
     id: streamId,
     messages: body.messages,
@@ -576,7 +572,7 @@ async function startNewStream(
     finished: false,
     createdAt: Date.now(),
   };
-  streamStore.set(streamId, streamState);
+  await storeStreamState(streamState);
 
   let assistantText = '';
 
@@ -615,11 +611,11 @@ async function startNewStream(
     const streamIterator = provider.chatStream(body.messages, options);
 
     for await (const chunk of streamIterator) {
-      // Store chunk for reconnect support
+      // Store chunk for reconnect support in Redis
       const content = chunk.delta.content || '';
       if (content) {
         assistantText += content;
-        streamState.chunks.push(content);
+        await addStreamChunk(streamId, content);
       }
 
       // Send chunk event
@@ -637,7 +633,7 @@ async function startNewStream(
 
       // Send done event if finished
       if (chunk.finishReason) {
-        streamState.finished = true;
+        await markStreamFinished(streamId);
         await sendSSE(
           res,
           'done',
@@ -668,13 +664,12 @@ async function startNewStream(
 
     // Clean up
     clearInterval(heartbeatInterval);
-    streamStore.delete(streamId);
+    await deleteStreamState(streamId);
   } catch (error) {
     clearInterval(heartbeatInterval);
 
-    // Store error state
-    streamState.finished = true;
-    streamState.error = error instanceof Error ? error.message : 'Unknown error';
+    // Store error state in Redis
+    await markStreamFinished(streamId, error instanceof Error ? error.message : 'Unknown error');
 
     // Send error event
     if (!res.writableEnded) {
@@ -682,15 +677,15 @@ async function startNewStream(
         res,
         'error',
         JSON.stringify({
-          message: streamState.error,
+          message: error instanceof Error ? error.message : 'Unknown error',
           code: error instanceof Error ? error.name : 'UNKNOWN_ERROR',
         }),
         `${streamId}-error`
       );
     }
 
-    // Clean up
-    streamStore.delete(streamId);
+    // Clean up (stream is already marked as finished in Redis, keep for potential reconnect)
+    // Redis TTL will automatically clean it up
   } finally {
     // End response if not already ended
     if (!res.writableEnded) {

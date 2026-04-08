@@ -61,7 +61,7 @@ function buildApp(middleware: ReturnType<typeof rateLimitByIp>, opts: AppOptions
 
   // Simulate auth + tenant middleware by directly setting props
   app.use((req: Request, _res: Response, next) => {
-    if (opts.userId) (req as any).user = { sub: opts.userId };
+    if (opts.userId) (req as any).user = { userId: opts.userId };
     if (opts.tenantId) (req as any).tenantId = opts.tenantId;
     if (opts.forwardedFor) req.headers['x-forwarded-for'] = opts.forwardedFor;
     next();
@@ -311,7 +311,7 @@ describe('Rate-Limit Middleware', () => {
 
       const app = express();
       app.use((req: any, _res, next) => {
-        req.user = { sub: 'u-all' };
+        req.user = { userId: 'u-all' };
         req.tenantId = 't-all';
         next();
       });
@@ -328,7 +328,7 @@ describe('Rate-Limit Middleware', () => {
 
       const app = express();
       app.use((req: any, _res, next) => {
-        req.user = { sub: 'u-exceed' };
+        req.user = { userId: 'u-exceed' };
         req.tenantId = 't-exceed';
         next();
       });

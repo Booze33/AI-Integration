@@ -33,4 +33,4 @@ export {
   hasMinRole,
 } from './middleware';
 
-export { authRoutes } from './routes';
+export { authRoutes, setAuthPool } from './routes';

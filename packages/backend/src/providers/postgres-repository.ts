@@ -12,13 +12,8 @@ import { ProviderName } from './types';
 export class PostgreSQLTenantAIConfigRepository implements TenantAIConfigRepository {
   private pool: Pool;
 
-  constructor(databaseUrl: string) {
-    this.pool = new Pool({
-      connectionString: databaseUrl,
-      max: 10,
-      idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 2000,
-    });
+  constructor(pool: Pool) {
+    this.pool = pool;
 
     // Handle pool errors
     this.pool.on('error', (err) => {

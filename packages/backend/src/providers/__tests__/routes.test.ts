@@ -7,7 +7,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import request from 'supertest';
 import express from 'express';
-import { tenantConfigRoutes } from '../routes';
+import { tenantConfigRoutes, setTenantConfigService } from '../routes';
 import { createTenantAIConfigService, InMemoryTenantAIConfigRepository } from '../tenant-config';
 
 // Mock authentication middleware
@@ -28,6 +28,7 @@ describe('Tenant Config API Routes', () => {
     // Create test service with in-memory repository
     const repository = new InMemoryTenantAIConfigRepository();
     service = createTenantAIConfigService('test-key', repository);
+    setTenantConfigService(service);
 
     // Create test app
     app = express();

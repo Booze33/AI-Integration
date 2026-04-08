@@ -411,6 +411,10 @@ Set up alerts for:
 3. Check auth tokens are valid
 4. Review application logs for errors
 
-## License
+## 5. Redis Stream Store for Chat Sessions
 
-Proprietary - AI Integration
+### Overview
+
+The chat streaming functionality uses Redis for storing stream states instead of in-memory storage. This enables:
+
+- **Multi-instance support**: Streams can be resumed across different server

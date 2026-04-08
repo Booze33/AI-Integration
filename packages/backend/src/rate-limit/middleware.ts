@@ -28,6 +28,7 @@
  */
 
 import { Request, Response, NextFunction, RequestHandler } from 'express';
+import { AuthenticatedRequest } from '../auth/middleware';
 import { increment } from './store';
 import { RateLimitConfig, RateLimitResult } from './types';
 
@@ -139,13 +140,13 @@ async function applyLimit(
 type PartialConfig = Partial<Omit<RateLimitConfig, 'keyPrefix'>>;
 
 /**
- * Rate-limit by authenticated user ID (JWT `sub` claim).
+ * Rate-limit by authenticated user ID (JWT `userId` claim).
  * Silently skips if `req.user` is not populated (i.e. unauthenticated route).
  */
 export function rateLimitByUser(overrides?: PartialConfig): RequestHandler {
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     // req.user is attached by the auth middleware — cast to access it
-    const userId = (req as Request & { user?: { sub?: string } }).user?.sub;
+    const userId = (req as AuthenticatedRequest).user?.userId;
     if (!userId) return next(); // not authenticated yet — skip
 
     const config: RateLimitConfig = {

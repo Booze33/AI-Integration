@@ -6,6 +6,7 @@
  */
 
 import { Router } from 'express';
+import { Pool } from 'pg';
 import { body, param, validationResult } from 'express-validator';
 import { authenticate, requireRole, AuthenticatedRequest } from '../auth/middleware';
 import { TenantAIConfigService } from './tenant-config';
@@ -17,9 +18,23 @@ import { logAudit, InputSanitizer } from '../audit';
 // Create service instance with encryption key from environment and PostgreSQL repository
 const encryptionKey =
   process.env.TENANT_CONFIG_ENCRYPTION_KEY || 'default-encryption-key-for-development';
-const databaseUrl = process.env.DATABASE_URL || 'postgresql://localhost:5432/myapp';
-const repository = new PostgreSQLTenantAIConfigRepository(databaseUrl);
-const tenantConfigService = new TenantAIConfigService(encryptionKey, repository);
+let tenantConfigService: TenantAIConfigService | null = null;
+
+function getTenantConfigService(): TenantAIConfigService {
+  if (!tenantConfigService) {
+    throw new Error('Tenant config service has not been initialized');
+  }
+  return tenantConfigService;
+}
+
+export function setTenantConfigPool(pool: Pool): void {
+  const repository = new PostgreSQLTenantAIConfigRepository(pool);
+  tenantConfigService = new TenantAIConfigService(encryptionKey, repository);
+}
+
+export function setTenantConfigService(service: TenantAIConfigService): void {
+  tenantConfigService = service;
+}
 
 const router: Router = Router();
 
@@ -35,7 +50,7 @@ router.get(
     try {
       const authReq = req as AuthenticatedRequest;
       const tenantId = authReq.tenantId!;
-      const configs = await tenantConfigService.findActiveByTenant(tenantId);
+      const configs = await getTenantConfigService().findActiveByTenant(tenantId);
 
       // Mask API keys in response
       const maskedConfigs = configs.map((config) => ({
@@ -77,7 +92,7 @@ router.get(
       const authReq = req as AuthenticatedRequest;
       const tenantId = authReq.tenantId!;
 
-      const config = await tenantConfigService.findById(id);
+      const config = await getTenantConfigService().findById(id);
       if (!config || config.tenant_id !== tenantId) {
         return res.status(404).json({
           success: false,
@@ -169,7 +184,7 @@ router.post(
       };
 
       // Check if configuration already exists for this provider
-      const existing = await tenantConfigService.findByTenantAndProvider(
+      const existing = await getTenantConfigService().findByTenantAndProvider(
         tenantId,
         sanitizedInput.provider as ProviderName
       );
@@ -193,7 +208,7 @@ router.post(
         });
       }
 
-      const config = await tenantConfigService.create(tenantId, sanitizedInput as any, userId);
+      const config = await getTenantConfigService().create(tenantId, sanitizedInput as any, userId);
 
       // Log successful creation
       await logAudit(req.auditService, {
@@ -291,7 +306,7 @@ router.put(
       const updates = req.body;
 
       // Verify the configuration exists and belongs to the tenant
-      const existing = await tenantConfigService.findById(id);
+      const existing = await getTenantConfigService().findById(id);
       if (!existing || existing.tenant_id !== tenantId) {
         return res.status(404).json({
           success: false,
@@ -301,7 +316,7 @@ router.put(
 
       // If changing provider, check for conflicts
       if (updates.provider && updates.provider !== existing.provider) {
-        const conflict = await tenantConfigService.findByTenantAndProvider(
+        const conflict = await getTenantConfigService().findByTenantAndProvider(
           tenantId,
           updates.provider as ProviderName
         );
@@ -313,7 +328,7 @@ router.put(
         }
       }
 
-      const config = await tenantConfigService.update(id, updates, userId);
+      const config = await getTenantConfigService().update(id, updates, userId);
 
       // Mask API key in response
       const maskedConfig = {
@@ -357,7 +372,7 @@ router.delete(
       const userId = authReq.user!.userId;
 
       // Verify the configuration exists and belongs to the tenant
-      const existing = await tenantConfigService.findById(id);
+      const existing = await getTenantConfigService().findById(id);
       if (!existing || existing.tenant_id !== tenantId) {
         return res.status(404).json({
           success: false,
@@ -365,7 +380,7 @@ router.delete(
         });
       }
 
-      await tenantConfigService.deactivate(id, userId);
+      await getTenantConfigService().deactivate(id, userId);
 
       res.json({
         success: true,

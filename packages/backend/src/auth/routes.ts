@@ -15,20 +15,20 @@ import { InputSanitizer } from '../audit';
 
 const router: Router = Router();
 
-const DATABASE_URL = process.env.DATABASE_URL;
-if (!DATABASE_URL) {
-  throw new Error('DATABASE_URL is required for auth routes');
-}
-
 const DEFAULT_TENANT_ID = process.env.DEFAULT_TENANT_ID || '00000000-0000-0000-0000-000000000000';
 
-const pool = new Pool({
-  connectionString: DATABASE_URL,
-  max: 10,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 5000,
-});
-const tenantDb = TenantDatabase.fromPool(pool);
+let tenantDb: TenantDatabase | null = null;
+
+export function setAuthPool(pool: Pool): void {
+  tenantDb = TenantDatabase.fromPool(pool);
+}
+
+function getTenantDb(): TenantDatabase {
+  if (!tenantDb) {
+    throw new Error('Auth database pool has not been initialized');
+  }
+  return tenantDb;
+}
 
 interface DbUser {
   id: string;
@@ -57,7 +57,7 @@ function resolveTenantId(req: Request): string {
 }
 
 async function findUserByEmail(tenantId: string, email: string): Promise<DbUser | null> {
-  return tenantDb.withTenant(tenantId, async (client) => {
+  return getTenantDb().withTenant(tenantId, async (client) => {
     const result = await client.query<DbUser>(
       'SELECT id, tenant_id, email, password_hash, created_at, updated_at FROM auth.users WHERE email = $1 AND deleted_at IS NULL',
       [email]
@@ -67,7 +67,7 @@ async function findUserByEmail(tenantId: string, email: string): Promise<DbUser 
 }
 
 async function findUserById(tenantId: string, userId: string): Promise<DbUser | null> {
-  return tenantDb.withTenant(tenantId, async (client) => {
+  return getTenantDb().withTenant(tenantId, async (client) => {
     const result = await client.query<DbUser>(
       'SELECT id, tenant_id, email, password_hash, created_at, updated_at FROM auth.users WHERE id = $1 AND deleted_at IS NULL',
       [userId]
@@ -77,7 +77,7 @@ async function findUserById(tenantId: string, userId: string): Promise<DbUser | 
 }
 
 async function getUserRole(tenantId: string, userId: string): Promise<string | null> {
-  return tenantDb.withTenant(tenantId, async (client) => {
+  return getTenantDb().withTenant(tenantId, async (client) => {
     const result = await client.query<{ role: string }>(
       'SELECT role FROM auth.user_roles WHERE user_id = $1 AND tenant_id = $2 ORDER BY granted_at DESC LIMIT 1',
       [userId, tenantId]
@@ -91,7 +91,7 @@ async function createAuthUser(
   email: string,
   passwordHash: string
 ): Promise<DbUser> {
-  return tenantDb.withTenant(tenantId, async (client) => {
+  return getTenantDb().withTenant(tenantId, async (client) => {
     const result = await client.query<DbUser>(
       `INSERT INTO auth.users (
          tenant_id,
@@ -112,7 +112,7 @@ async function createAuthUser(
 }
 
 async function assignRoleToUser(tenantId: string, userId: string, role: string): Promise<void> {
-  await tenantDb.withTenant(tenantId, async (client) => {
+  await getTenantDb().withTenant(tenantId, async (client) => {
     await client.query(
       `INSERT INTO auth.user_roles (tenant_id, user_id, role, granted_by)
        VALUES ($1, $2, $3, $4)`,

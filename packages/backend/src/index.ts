@@ -1,16 +1,18 @@
 import 'dotenv/config'; // ← must be the very first import
-//import { getEnv } from './config/env';
+import cors from 'cors';
 import express from 'express';
 import { Pool } from 'pg';
+import { setupOptimizedDatabase } from './database';
 import { runMigrations } from './database/migrate';
-import { authRoutes } from './auth';
+import { authRoutes, setAuthPool } from './auth';
 import { createChatRoutes } from './chat';
 import { pipelineRoutes } from './pipeline';
 import { webhookRoutes } from './webhook';
-import { tenantConfigRoutes } from './providers/routes';
+import { tenantConfigRoutes, setTenantConfigPool } from './providers/routes';
 import { createRateLimiter } from './rate-limit';
 import { requestLogger } from './logger';
 import { notFoundHandler, errorHandler } from './errors';
+import { closeRedisClient } from './redis/client';
 import {
   validateEnv,
   printEnvConfig,
@@ -26,6 +28,14 @@ const env = validateEnv();
 printEnvConfig();
 
 const app = express();
+let pool: Pool | null = null;
+
+app.use(
+  cors({
+    origin: env.CORS_ORIGIN,
+    credentials: env.CORS_CREDENTIALS,
+  })
+);
 
 // Global audit service (injected into requests for tracking)
 let auditService: AuditService | null = null;
@@ -70,117 +80,107 @@ app.use(express.json());
 // ---------------------------------------------------------------------------
 app.use('/api', ...createRateLimiter());
 
-// Database connection for health checks
-const pool = new Pool({
-  connectionString: env.DATABASE_URL,
-  max: 20,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 2000,
-});
+function registerDatabaseRoutes(sharedPool: Pool) {
+  pool = sharedPool;
+  setAuthPool(sharedPool);
+  setTenantConfigPool(sharedPool);
 
-// Auth routes
-app.use('/auth', authRoutes);
+  app.use('/auth', authRoutes);
+  app.use('/api', createChatRoutes(sharedPool));
+  app.use('/api/tenant', tenantConfigRoutes);
 
-// Chat routes (streaming AI chat with SSE)
-app.use('/api', createChatRoutes(pool));
+  app.get('/health', (_, res) => res.json({ status: 'ok' }));
+
+  app.get('/health/db', async (_, res) => {
+    const startTime = Date.now();
+
+    try {
+      // Test database connection
+      const client = await sharedPool.connect();
+      try {
+        // Run a simple query to verify connection
+        const result = await client.query('SELECT NOW() as time, current_database() as database');
+        const latency = Date.now() - startTime;
+
+        res.json({
+          status: 'ok',
+          database: {
+            connected: true,
+            name: result.rows[0].database,
+            latency: `${latency}ms`,
+            timestamp: result.rows[0].time,
+          },
+        });
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      const latency = Date.now() - startTime;
+
+      res.status(503).json({
+        status: 'error',
+        database: {
+          connected: false,
+          latency: `${latency}ms`,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        },
+      });
+    }
+  });
+
+  app.get('/health/detailed', async (_, res) => {
+    const startTime = Date.now();
+
+    try {
+      const client = await sharedPool.connect();
+      try {
+        const result = await client.query('SELECT NOW() as time, current_database() as database');
+        const latency = Date.now() - startTime;
+
+        res.json({
+          status: 'ok',
+          database: {
+            connected: true,
+            name: result.rows[0].database,
+            latency: `${latency}ms`,
+            timestamp: result.rows[0].time,
+          },
+          pool: {
+            totalCount: sharedPool.totalCount,
+            idleCount: sharedPool.idleCount,
+            waitingCount: sharedPool.waitingCount,
+          },
+          server: {
+            uptime: process.uptime(),
+            memory: process.memoryUsage(),
+            nodeVersion: process.version,
+          },
+        });
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      const latency = Date.now() - startTime;
+
+      res.status(503).json({
+        status: 'error',
+        database: {
+          connected: false,
+          latency: `${latency}ms`,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        },
+        pool: {
+          totalCount: sharedPool.totalCount,
+          idleCount: sharedPool.idleCount,
+          waitingCount: sharedPool.waitingCount,
+        },
+      });
+    }
+  });
+}
 
 // Pipeline routes (file upload and processing)
 app.use('/api/pipeline', pipelineRoutes);
-
-// Tenant configuration routes (AI provider settings)
-app.use('/api/tenant', tenantConfigRoutes);
-
-// Basic health check (for load balancers)
-app.get('/health', (_, res) => res.json({ status: 'ok' }));
-
-// Database health check (for Docker, Fly.io, Kubernetes)
-app.get('/health/db', async (_, res) => {
-  const startTime = Date.now();
-
-  try {
-    // Test database connection
-    const client = await pool.connect();
-    try {
-      // Run a simple query to verify connection
-      const result = await client.query('SELECT NOW() as time, current_database() as database');
-      const latency = Date.now() - startTime;
-
-      res.json({
-        status: 'ok',
-        database: {
-          connected: true,
-          name: result.rows[0].database,
-          latency: `${latency}ms`,
-          timestamp: result.rows[0].time,
-        },
-      });
-    } finally {
-      client.release();
-    }
-  } catch (error) {
-    const latency = Date.now() - startTime;
-
-    res.status(503).json({
-      status: 'error',
-      database: {
-        connected: false,
-        latency: `${latency}ms`,
-        error: error instanceof Error ? error.message : 'Unknown error',
-      },
-    });
-  }
-});
-
-// Detailed health check (includes pool stats)
-app.get('/health/detailed', async (_, res) => {
-  const startTime = Date.now();
-
-  try {
-    const client = await pool.connect();
-    try {
-      const result = await client.query('SELECT NOW() as time, current_database() as database');
-      const latency = Date.now() - startTime;
-
-      res.json({
-        status: 'ok',
-        database: {
-          connected: true,
-          name: result.rows[0].database,
-          latency: `${latency}ms`,
-          timestamp: result.rows[0].time,
-        },
-        pool: {
-          totalCount: pool.totalCount,
-          idleCount: pool.idleCount,
-          waitingCount: pool.waitingCount,
-        },
-        server: {
-          uptime: process.uptime(),
-          memory: process.memoryUsage(),
-          nodeVersion: process.version,
-        },
-      });
-    } finally {
-      client.release();
-    }
-  } catch (error) {
-    const latency = Date.now() - startTime;
-
-    res.status(503).json({
-      status: 'error',
-      database: {
-        connected: false,
-        latency: `${latency}ms`,
-        error: error instanceof Error ? error.message : 'Unknown error',
-      },
-      pool: {
-        totalCount: pool.totalCount,
-        idleCount: pool.idleCount,
-        waitingCount: pool.waitingCount,
-      },
-    });
-  }
-});
 
 // ---------------------------------------------------------------------------
 // Error handling — MUST come after all routes
@@ -209,9 +209,17 @@ async function startServer() {
       verbose: env.NODE_ENV === 'development',
     });
 
+    const optimizedDb = await setupOptimizedDatabase({
+      connectionString: databaseUrl,
+      enableMetrics: true,
+      enableCache: true,
+    });
+    const sharedPool = optimizedDb.pool.getPool();
+    registerDatabaseRoutes(sharedPool);
+
     // Initialize audit service if enabled
     if (env.ENABLE_AUDIT_LOGGING) {
-      auditService = createAuditService(pool);
+      auditService = createAuditService(sharedPool);
       console.log('✅ Audit logging initialized');
     }
 
@@ -242,5 +250,30 @@ process.on('unhandledRejection', (reason: unknown) => {
   console.error('💥 unhandledRejection — shutting down:', reason);
   process.exit(1);
 });
+
+async function shutdown(): Promise<void> {
+  console.log('Shutting down gracefully...');
+
+  try {
+    if (pool) {
+      await pool.end();
+      console.log('✅ Database pool closed');
+    }
+  } catch (error) {
+    console.error('Error closing database pool:', error);
+  }
+
+  try {
+    await closeRedisClient();
+    console.log('✅ Redis client closed');
+  } catch (error) {
+    console.error('Error closing Redis client:', error);
+  }
+
+  process.exit(0);
+}
+
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);
 
 startServer();
