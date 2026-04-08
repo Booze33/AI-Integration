@@ -52,6 +52,13 @@ export async function closeRedisClient(): Promise<void> {
 }
 
 /**
+ * Build the Redis set key used to track a user's active refresh token IDs.
+ */
+function getUserTokensKey(userId: string): string {
+  return `user_tokens:${userId}`;
+}
+
+/**
  * Store refresh token in Redis with TTL
  */
 export async function storeRefreshToken(
@@ -60,9 +67,14 @@ export async function storeRefreshToken(
   ttlSeconds: number = 7 * 24 * 60 * 60 // 7 days default
 ): Promise<void> {
   const client = await getRedisClient();
-  const key = `refresh_token:${tokenId}`;
+  const refreshKey = `refresh_token:${tokenId}`;
+  const userTokensKey = getUserTokensKey(userId);
 
-  await client.setEx(key, ttlSeconds, userId);
+  const pipeline = client.multi();
+  pipeline.setEx(refreshKey, ttlSeconds, userId);
+  pipeline.sAdd(userTokensKey, tokenId);
+  pipeline.expire(userTokensKey, ttlSeconds);
+  await pipeline.exec();
 }
 
 /**
@@ -70,9 +82,9 @@ export async function storeRefreshToken(
  */
 export async function verifyRefreshToken(tokenId: string): Promise<string | null> {
   const client = await getRedisClient();
-  const key = `refresh_token:${tokenId}`;
+  const refreshKey = `refresh_token:${tokenId}`;
 
-  return await client.get(key);
+  return (await client.get(refreshKey)) as string | null;
 }
 
 /**
@@ -80,9 +92,18 @@ export async function verifyRefreshToken(tokenId: string): Promise<string | null
  */
 export async function revokeRefreshToken(tokenId: string): Promise<void> {
   const client = await getRedisClient();
-  const key = `refresh_token:${tokenId}`;
+  const refreshKey = `refresh_token:${tokenId}`;
+  const userId = (await client.get(refreshKey)) as string | null;
 
-  await client.del(key);
+  if (!userId) {
+    return;
+  }
+
+  const userTokensKey = getUserTokensKey(userId);
+  const pipeline = client.multi();
+  pipeline.del(refreshKey);
+  pipeline.sRem(userTokensKey, tokenId);
+  await pipeline.exec();
 }
 
 /**
@@ -90,16 +111,18 @@ export async function revokeRefreshToken(tokenId: string): Promise<void> {
  */
 export async function revokeAllUserTokens(userId: string): Promise<void> {
   const client = await getRedisClient();
-  const pattern = 'refresh_token:*';
+  const userTokensKey = getUserTokensKey(userId);
+  const tokenIds = await client.sMembers(userTokensKey);
 
-  const keys = await client.keys(pattern);
-
-  for (const key of keys) {
-    const storedUserId = await client.get(key);
-    if (storedUserId === userId) {
-      await client.del(key);
-    }
+  if (tokenIds.length === 0) {
+    await client.del(userTokensKey);
+    return;
   }
+
+  const pipeline = client.multi();
+  tokenIds.forEach((tokenId) => pipeline.del(`refresh_token:${tokenId}`));
+  pipeline.del(userTokensKey);
+  await pipeline.exec();
 }
 
 /**
@@ -107,19 +130,16 @@ export async function revokeAllUserTokens(userId: string): Promise<void> {
  */
 export async function getUserActiveTokens(userId: string): Promise<string[]> {
   const client = await getRedisClient();
-  const pattern = 'refresh_token:*';
+  const userTokensKey = getUserTokensKey(userId);
+  const tokenIds = await client.sMembers(userTokensKey);
 
-  const keys = await client.keys(pattern);
-  const userTokens: string[] = [];
-
-  for (const key of keys) {
-    const storedUserId = await client.get(key);
-    if (storedUserId === userId) {
-      // Extract tokenId from key
-      const tokenId = key.replace('refresh_token:', '');
-      userTokens.push(tokenId);
-    }
+  if (tokenIds.length === 0) {
+    return [];
   }
 
-  return userTokens;
+  const pipeline = client.multi();
+  tokenIds.forEach((tokenId) => pipeline.exists(`refresh_token:${tokenId}`));
+  const results = (await pipeline.exec()) as unknown as Array<number | null>;
+
+  return tokenIds.filter((_, index) => results[index] === 1);
 }

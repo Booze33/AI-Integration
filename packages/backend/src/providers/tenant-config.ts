@@ -37,6 +37,7 @@ export interface TenantAIConfig {
 export interface TenantAIConfigInput {
   provider: ProviderName;
   api_key: string;
+  api_key_iv?: string;
   base_url?: string;
   organization?: string;
   default_model?: string;
@@ -183,12 +184,13 @@ export class TenantAIConfigService {
     }
 
     // Encrypt the API key
-    const { encrypted } = this.encryptApiKey(input.api_key);
+    const { encrypted, iv } = this.encryptApiKey(input.api_key);
 
     // Create the configuration with encrypted data
     const configInput = {
       ...input,
       api_key: encrypted, // This will be stored as api_key_encrypted
+      api_key_iv: iv,
     };
 
     return this.repository.create(tenantId, configInput, createdBy);
@@ -205,10 +207,11 @@ export class TenantAIConfigService {
     // If API key is being updated, encrypt it
     let configInput = input;
     if (input.api_key) {
-      const { encrypted } = this.encryptApiKey(input.api_key);
+      const { encrypted, iv } = this.encryptApiKey(input.api_key);
       configInput = {
         ...input,
         api_key: encrypted,
+        api_key_iv: iv,
       };
     }
 

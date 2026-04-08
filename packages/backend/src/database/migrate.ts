@@ -69,6 +69,7 @@ export async function runMigrations(config: MigrationConfig): Promise<void> {
     console.error('❌ Migration failed:', error);
     throw error;
   } finally {
+    client.release();
     await pool.end();
   }
 }

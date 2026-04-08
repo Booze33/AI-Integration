@@ -7,6 +7,10 @@ const KEYS_DIR = path.join(__dirname, '../../keys');
 const PRIVATE_KEY_PATH = path.join(KEYS_DIR, 'private.pem');
 const PUBLIC_KEY_PATH = path.join(KEYS_DIR, 'public.pem');
 
+// Cached keys (loaded once at module initialization)
+let _privateKey: string | null = null;
+let _publicKey: string | null = null;
+
 // Token configuration
 const ACCESS_TOKEN_EXPIRY = '15m';
 const REFRESH_TOKEN_EXPIRY = '7d';
@@ -35,23 +39,29 @@ export interface DecodedRefreshToken extends RefreshTokenPayload {
 }
 
 /**
- * Load private key for signing tokens
+ * Load private key for signing tokens (cached)
  */
 function getPrivateKey(): string {
-  if (!fs.existsSync(PRIVATE_KEY_PATH)) {
-    throw new Error('Private key not found. Run: pnpm generate-keys');
+  if (!_privateKey) {
+    if (!fs.existsSync(PRIVATE_KEY_PATH)) {
+      throw new Error('Private key not found. Run: pnpm generate-keys');
+    }
+    _privateKey = fs.readFileSync(PRIVATE_KEY_PATH, 'utf8');
   }
-  return fs.readFileSync(PRIVATE_KEY_PATH, 'utf8');
+  return _privateKey;
 }
 
 /**
- * Load public key for verifying tokens
+ * Load public key for verifying tokens (cached)
  */
 function getPublicKey(): string {
-  if (!fs.existsSync(PUBLIC_KEY_PATH)) {
-    throw new Error('Public key not found. Run: pnpm generate-keys');
+  if (!_publicKey) {
+    if (!fs.existsSync(PUBLIC_KEY_PATH)) {
+      throw new Error('Public key not found. Run: pnpm generate-keys');
+    }
+    _publicKey = fs.readFileSync(PUBLIC_KEY_PATH, 'utf8');
   }
-  return fs.readFileSync(PUBLIC_KEY_PATH, 'utf8');
+  return _publicKey;
 }
 
 /**

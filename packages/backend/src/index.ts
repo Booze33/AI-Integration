@@ -4,7 +4,7 @@ import express from 'express';
 import { Pool } from 'pg';
 import { runMigrations } from './database/migrate';
 import { authRoutes } from './auth';
-import { chatRoutes } from './chat';
+import { createChatRoutes } from './chat';
 import { pipelineRoutes } from './pipeline';
 import { webhookRoutes } from './webhook';
 import { tenantConfigRoutes } from './providers/routes';
@@ -82,7 +82,7 @@ const pool = new Pool({
 app.use('/auth', authRoutes);
 
 // Chat routes (streaming AI chat with SSE)
-app.use('/api', chatRoutes);
+app.use('/api', createChatRoutes(pool));
 
 // Pipeline routes (file upload and processing)
 app.use('/api/pipeline', pipelineRoutes);

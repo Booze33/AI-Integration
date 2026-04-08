@@ -203,7 +203,7 @@ export class PostgreSQLTenantAIConfigRepository implements TenantAIConfigReposit
       tenantId,
       input.provider,
       input.api_key, // This should already be encrypted by the service
-      'dummy-iv', // This should be provided by the service
+      input.api_key_iv || 'dummy-iv', // Use provided IV or fallback for backward compatibility
       input.base_url,
       input.organization,
       input.default_model,
@@ -246,7 +246,7 @@ export class PostgreSQLTenantAIConfigRepository implements TenantAIConfigReposit
       updateFields.push(`api_key_encrypted = $${paramIndex++}`);
       params.push(input.api_key); // Should already be encrypted
       updateFields.push(`api_key_iv = $${paramIndex++}`);
-      params.push('dummy-iv'); // Should be provided by service
+      params.push(input.api_key_iv || 'dummy-iv'); // Use provided IV or fallback for backward compatibility
     }
 
     if (input.base_url !== undefined) {
