@@ -7,7 +7,10 @@
 
 import { Pool } from 'pg';
 import path from 'path';
-import { runner } from 'node-pg-migrate';
+// FIX 1: Import the runner directly from the library
+import * as pgMigrate from 'node-pg-migrate';
+// FIX 2: Import child_process at the top
+import { execSync } from 'child_process';
 
 export interface MigrationConfig {
   databaseUrl: string;
@@ -23,7 +26,7 @@ export interface MigrationConfig {
 const DEFAULT_CONFIG: Partial<MigrationConfig> = {
   schema: 'public',
   migrationsTable: 'pgmigrations',
-  dir: path.join(process.cwd(), 'src', 'database', 'migrations'), // More robust default
+  dir: path.join(process.cwd(), 'packages', 'backend', 'src', 'database', 'migrations'),
   direction: 'up',
   verbose: process.env.NODE_ENV === 'development',
 };
@@ -34,7 +37,6 @@ const DEFAULT_CONFIG: Partial<MigrationConfig> = {
 export async function runMigrations(config: MigrationConfig): Promise<void> {
   const migrationConfig = { ...DEFAULT_CONFIG, ...config };
 
-  // Validate required config
   if (!migrationConfig.databaseUrl) {
     throw new Error('Database URL is required for migrations');
   }
@@ -48,7 +50,9 @@ export async function runMigrations(config: MigrationConfig): Promise<void> {
   try {
     console.log('🔄 Running database migrations...');
 
-    // Use dbClient (correct option name for node-pg-migrate)
+    const runner =
+      typeof pgMigrate === 'function' ? pgMigrate : (pgMigrate as any).default || pgMigrate;
+
     await runner({
       dbClient: client,
       migrationsTable: migrationConfig.migrationsTable ?? 'pgmigrations',
@@ -60,8 +64,6 @@ export async function runMigrations(config: MigrationConfig): Promise<void> {
       log: (msg: string) => console.log(`  ${msg}`),
     });
 
-    // Check if any migrations were applied
-    // Note: migrate() returns the list of migrated migrations, but we don't need it for logging
     console.log('✅ Migrations completed successfully');
   } catch (error) {
     console.error('❌ Migration failed:', error);
@@ -86,9 +88,8 @@ export async function createMigration(
 
   console.log(`📝 Creating migration: ${name}`);
 
-  const { execSync } = await import('child_process');
-
   try {
+    // FIX 2: Using the pre-imported execSync
     execSync(`npx node-pg-migrate create ${name} --migrations-dir ${dir}`, {
       stdio: 'inherit',
     });

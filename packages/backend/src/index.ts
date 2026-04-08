@@ -1,3 +1,5 @@
+import 'dotenv/config'; // ← must be the very first import
+//import { getEnv } from './config/env';
 import express from 'express';
 import { Pool } from 'pg';
 import { runMigrations } from './database/migrate';

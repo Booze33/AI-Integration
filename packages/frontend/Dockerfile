@@ -11,7 +11,7 @@ RUN apk update && apk upgrade && \
     rm -rf /var/cache/apk/*
 
 # Security: Use non-root user
-RUN addgroup -g 1000 nodejs && adduser -D -u 1000 -H -s /sbin/nologin -G nodejs -g nodejs nodejs
+RUN addgroup -g 1001 nodejs && adduser -D -u 1001 -H -s /sbin/nologin -G nodejs -g nodejs nodejs
 
 WORKDIR /tmp/deps
 
@@ -51,14 +51,17 @@ RUN apk update && apk upgrade && \
     rm -rf /var/cache/apk/* /usr/lib/apk/* /etc/apk/*
 
 # Security: Create non-root user
-RUN addgroup -g 1000 nodejs && adduser -D -u 1000 -H -s /sbin/nologin -G nodejs -g nodejs nodejs
+RUN addgroup -g 1001 nodejs && adduser -D -u 1001 -H -s /sbin/nologin -G nodejs -g nodejs nodejs
 
 WORKDIR /app
 
 # Security: Set environment variables
 ENV NODE_ENV=production \
-    NODE_OPTIONS="--no-warnings --use-strict" \
+    NODE_OPTIONS="--no-warnings" \
     NEXT_TELEMETRY_DISABLED=1
+
+# Install pnpm (pinned version)
+RUN npm install -g pnpm@10.33.0
 
 # Copy package.json files
 COPY --chown=nodejs:nodejs --from=builder /tmp/build/package.json .
@@ -91,7 +94,7 @@ RUN chmod -R 555 /usr/local/lib/node_modules && \
 USER nodejs
 
 # Security: Use dumb-init to handle signals properly
-ENTRYPOINT ["/usr/sbin/dumb-init", "--"]
+ENTRYPOINT ["/usr/bin/dumb-init", "--"]
 
 # Expose only required port
 EXPOSE 3000

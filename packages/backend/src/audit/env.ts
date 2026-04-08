@@ -70,6 +70,11 @@ export type Environment = z.infer<typeof envSchema>;
  * Validate and return environment variables
  */
 export function validateEnv(): Environment {
+  // FIX 1: Removed `process.env` from the log — it would dump every secret
+  // (JWT keys, DB passwords, encryption keys) to stdout, which is a data leak
+  // especially when logs are shipped to external services.
+  console.log('🔍 Validating environment variables...');
+
   const result = envSchema.safeParse(process.env);
 
   if (!result.success) {
@@ -92,11 +97,22 @@ export function validateEnv(): Environment {
     process.exit(1);
   }
 
-  return result.data;
+  const data = result.data;
+
+  // FIX 5: Cross-field warning — if a provider is set but no key is provided,
+  // fail loudly at startup instead of silently blowing up at runtime.
+  if (data.ACTIVE_AI_PROVIDER && !data.AI_API_KEY) {
+    console.warn(
+      `⚠️  ACTIVE_AI_PROVIDER is set to "${data.ACTIVE_AI_PROVIDER}" but AI_API_KEY is not provided. ` +
+        `This may cause runtime failures unless keys are configured per-tenant.`
+    );
+  }
+
+  return data;
 }
 
 /**
- * Get validated environment variables
+ * Get validated environment variables (cached after first call)
  */
 let cachedEnv: Environment | null = null;
 
@@ -107,6 +123,20 @@ export function getEnv(): Environment {
 
   cachedEnv = validateEnv();
   return cachedEnv;
+}
+
+/**
+ * FIX 2: Reset the env cache.
+ *
+ * The module-level `cachedEnv` variable never resets between test runs on its
+ * own. If one test mutates `process.env`, subsequent calls to `getEnv()` will
+ * silently return stale data, causing subtle hard-to-debug failures.
+ *
+ * Call this in your test `beforeEach` / `afterEach` hooks to guarantee a
+ * fresh parse on every test.
+ */
+export function resetEnvCache(): void {
+  cachedEnv = null;
 }
 
 /**
@@ -161,18 +191,27 @@ export function printEnvConfig(): void {
 }
 
 /**
- * Mask sensitive values in logs
+ * FIX 4: Mask sensitive values in logs.
+ *
+ * The original implementation sliced the first/last 3 chars of any string,
+ * which for a URL like `postgres://user:pass@host/db` still exposes structural
+ * information (scheme, path). We now strip everything after the scheme for
+ * URLs, and fall back to generic masking for non-URL strings.
  */
 function maskSensitiveValue(value: string): string {
-  if (value.length <= 8) {
-    return '***';
+  try {
+    const url = new URL(value);
+    return `${url.protocol}//*****`;
+  } catch {
+    // Not a URL — fall back to generic char masking
+    if (value.length <= 8) {
+      return '***';
+    }
+    const start = value.slice(0, 3);
+    const end = value.slice(-3);
+    const masked = '*'.repeat(Math.max(value.length - 6, 1));
+    return `${start}${masked}${end}`;
   }
-
-  const start = value.slice(0, 3);
-  const end = value.slice(-3);
-  const masked = '*'.repeat(Math.max(value.length - 6, 1));
-
-  return `${start}${masked}${end}`;
 }
 
 /**
@@ -189,7 +228,10 @@ export function validateEnvVariable(
     custom?: (value: string) => boolean;
   }
 ): { valid: boolean; error?: string } {
-  if (rules.required && !value) {
+  // FIX 3: The original used `!value` which is falsy for both `undefined` and
+  // `""` (empty string). An explicit trim check is safer — it also catches
+  // whitespace-only strings that would otherwise slip through as "present".
+  if (rules.required && (value === undefined || value === null || value.trim() === '')) {
     return { valid: false, error: `${key} is required` };
   }
 

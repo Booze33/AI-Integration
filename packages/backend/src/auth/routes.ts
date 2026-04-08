@@ -1,5 +1,7 @@
 import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
+import { Pool } from 'pg';
+import { TenantDatabase } from '../database/tenant-context';
 import { generateTokenPair, verifyToken, TokenPayload, DecodedRefreshToken } from './jwt';
 import { authenticate, AuthenticatedRequest } from './middleware';
 import {
@@ -10,20 +12,114 @@ import {
   getUserActiveTokens,
 } from '../redis/client';
 import { InputSanitizer } from '../audit';
-import { randomUUID as crypto_randomUUID } from 'crypto';
 
 const router: Router = Router();
 
-// In-memory user store (replace with database in production)
-interface User {
-  id: string;
-  email: string;
-  passwordHash: string;
-  role: string;
-  createdAt: Date;
+const DATABASE_URL = process.env.DATABASE_URL;
+if (!DATABASE_URL) {
+  throw new Error('DATABASE_URL is required for auth routes');
 }
 
-const users: Map<string, User> = new Map();
+const DEFAULT_TENANT_ID = process.env.DEFAULT_TENANT_ID || '00000000-0000-0000-0000-000000000000';
+
+const pool = new Pool({
+  connectionString: DATABASE_URL,
+  max: 10,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 5000,
+});
+const tenantDb = TenantDatabase.fromPool(pool);
+
+interface DbUser {
+  id: string;
+  tenant_id: string;
+  email: string;
+  password_hash: string | null;
+  created_at: Date;
+  updated_at: Date;
+}
+
+function resolveTenantId(req: Request): string {
+  const tenantIdCandidate =
+    typeof req.body?.tenantId === 'string'
+      ? req.body.tenantId
+      : typeof req.body?.tenant_id === 'string'
+        ? req.body.tenant_id
+        : typeof req.headers['x-tenant-id'] === 'string'
+          ? req.headers['x-tenant-id']
+          : DEFAULT_TENANT_ID;
+
+  const sanitizedTenantId = InputSanitizer.sanitizeText(tenantIdCandidate, {
+    maxLength: 100,
+  });
+
+  return sanitizedTenantId || DEFAULT_TENANT_ID;
+}
+
+async function findUserByEmail(tenantId: string, email: string): Promise<DbUser | null> {
+  return tenantDb.withTenant(tenantId, async (client) => {
+    const result = await client.query<DbUser>(
+      'SELECT id, tenant_id, email, password_hash, created_at, updated_at FROM auth.users WHERE email = $1 AND deleted_at IS NULL',
+      [email]
+    );
+    return result.rows[0] || null;
+  });
+}
+
+async function findUserById(tenantId: string, userId: string): Promise<DbUser | null> {
+  return tenantDb.withTenant(tenantId, async (client) => {
+    const result = await client.query<DbUser>(
+      'SELECT id, tenant_id, email, password_hash, created_at, updated_at FROM auth.users WHERE id = $1 AND deleted_at IS NULL',
+      [userId]
+    );
+    return result.rows[0] || null;
+  });
+}
+
+async function getUserRole(tenantId: string, userId: string): Promise<string | null> {
+  return tenantDb.withTenant(tenantId, async (client) => {
+    const result = await client.query<{ role: string }>(
+      'SELECT role FROM auth.user_roles WHERE user_id = $1 AND tenant_id = $2 ORDER BY granted_at DESC LIMIT 1',
+      [userId, tenantId]
+    );
+    return result.rows[0]?.role || null;
+  });
+}
+
+async function createAuthUser(
+  tenantId: string,
+  email: string,
+  passwordHash: string
+): Promise<DbUser> {
+  return tenantDb.withTenant(tenantId, async (client) => {
+    const result = await client.query<DbUser>(
+      `INSERT INTO auth.users (
+         tenant_id,
+         email,
+         password_hash,
+         status,
+         email_verified,
+         metadata,
+         created_at,
+         updated_at
+       )
+       VALUES ($1, $2, $3, 'active', false, '{}', NOW(), NOW())
+       RETURNING id, tenant_id, email, password_hash, created_at, updated_at`,
+      [tenantId, email, passwordHash]
+    );
+    return result.rows[0];
+  });
+}
+
+async function assignRoleToUser(tenantId: string, userId: string, role: string): Promise<void> {
+  await tenantDb.withTenant(tenantId, async (client) => {
+    await client.query(
+      `INSERT INTO auth.user_roles (tenant_id, user_id, role, granted_by)
+       VALUES ($1, $2, $3, $4)`,
+      [tenantId, userId, role, userId]
+    );
+  });
+}
 
 /**
  * POST /auth/register
@@ -31,13 +127,12 @@ const users: Map<string, User> = new Map();
  */
 router.post('/register', async (req: Request, res: Response): Promise<void> => {
   try {
-    // Sanitize inputs
     const { email: rawEmail, password, role = 'user' } = req.body;
     const email = InputSanitizer.sanitizeEmail(rawEmail);
     const sanitizedPassword = InputSanitizer.sanitizeText(password, { maxLength: 100 });
     const sanitizedRole = InputSanitizer.sanitizeText(role, { maxLength: 50 });
+    const tenantId = resolveTenantId(req);
 
-    // Validate input
     if (!email || !sanitizedPassword) {
       res.status(400).json({
         error: 'Bad Request',
@@ -46,7 +141,6 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    // Validate password strength
     if (sanitizedPassword.length < 8) {
       res.status(400).json({
         error: 'Bad Request',
@@ -55,48 +149,54 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    // Check if user already exists
-    if (users.has(email)) {
-      res.status(409).json({
-        error: 'Conflict',
-        message: 'User with this email already exists',
-      });
-      return;
-    }
-
-    // Hash password
     const salt = await bcrypt.genSalt(12);
     const passwordHash = await bcrypt.hash(sanitizedPassword, salt);
 
-    // Create user
-    const user: User = {
-      id: crypto_randomUUID(),
-      email,
-      passwordHash,
-      role: sanitizedRole,
-      createdAt: new Date(),
-    };
+    let user: DbUser;
+    try {
+      user = await createAuthUser(tenantId, email, passwordHash);
+      await assignRoleToUser(tenantId, user.id, sanitizedRole);
+    } catch (error: unknown) {
+      const pgError = error as { code?: string };
+      if (pgError.code === '23505') {
+        res.status(409).json({
+          error: 'Conflict',
+          message: 'User with this email already exists',
+        });
+        return;
+      }
+      throw error;
+    }
 
-    users.set(email, user);
-
-    // Generate tokens
     const payload: TokenPayload = {
       userId: user.id,
       email: user.email,
-      role: user.role,
+      role: sanitizedRole,
+      tenantId,
     };
 
     const { accessToken, refreshToken, tokenId } = generateTokenPair(payload);
-
-    // Store refresh token in Redis with 7 days TTL
     await storeRefreshToken(user.id, tokenId, 7 * 24 * 60 * 60);
+
+    const cookieOptions = {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax' as const,
+      path: '/',
+    };
+
+    res.cookie('accessToken', accessToken, { ...cookieOptions, maxAge: 15 * 60 * 1000 });
+    res.cookie('refreshToken', refreshToken, {
+      ...cookieOptions,
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
 
     res.status(201).json({
       message: 'User registered successfully',
       user: {
         id: user.id,
         email: user.email,
-        role: user.role,
+        role: sanitizedRole,
       },
       accessToken,
       refreshToken,
@@ -116,12 +216,11 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
  */
 router.post('/login', async (req: Request, res: Response): Promise<void> => {
   try {
-    // Sanitize inputs
     const { email: rawEmail, password: rawPassword } = req.body;
     const email = InputSanitizer.sanitizeEmail(rawEmail);
     const password = InputSanitizer.sanitizeText(rawPassword, { maxLength: 100 });
+    const tenantId = resolveTenantId(req);
 
-    // Validate input
     if (!email || !password) {
       res.status(400).json({
         error: 'Bad Request',
@@ -130,9 +229,8 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    // Find user
-    const user = users.get(email);
-    if (!user) {
+    const user = await findUserByEmail(tenantId, email);
+    if (!user || !user.password_hash) {
       res.status(401).json({
         error: 'Unauthorized',
         message: 'Invalid email or password',
@@ -140,8 +238,7 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    // Verify password
-    const isValidPassword = await bcrypt.compare(password, user.passwordHash);
+    const isValidPassword = await bcrypt.compare(password, user.password_hash);
     if (!isValidPassword) {
       res.status(401).json({
         error: 'Unauthorized',
@@ -150,16 +247,15 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    // Generate tokens
+    const persistedRole = (await getUserRole(tenantId, user.id)) || 'user';
     const payload: TokenPayload = {
       userId: user.id,
       email: user.email,
-      role: user.role,
+      role: persistedRole,
+      tenantId,
     };
 
     const { accessToken, refreshToken, tokenId } = generateTokenPair(payload);
-
-    // Store refresh token in Redis with 7 days TTL
     await storeRefreshToken(user.id, tokenId, 7 * 24 * 60 * 60);
 
     res.json({
@@ -167,7 +263,7 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
       user: {
         id: user.id,
         email: user.email,
-        role: user.role,
+        role: persistedRole,
       },
       accessToken,
       refreshToken,
@@ -236,6 +332,7 @@ router.post('/refresh', async (req: Request, res: Response): Promise<void> => {
       userId: decoded.userId,
       email: decoded.email,
       role: decoded.role,
+      tenantId: decoded.tenantId,
     };
 
     const {
@@ -277,33 +374,41 @@ router.post('/refresh', async (req: Request, res: Response): Promise<void> => {
  * GET /auth/me
  * Get current user info (protected route)
  */
-router.get('/me', authenticate as any, (req: AuthenticatedRequest, res: Response): void => {
-  if (!req.user) {
-    res.status(401).json({
-      error: 'Unauthorized',
-      message: 'Not authenticated',
-    });
-    return;
-  }
+router.get(
+  '/me',
+  authenticate as any,
+  async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    if (!req.user) {
+      res.status(401).json({
+        error: 'Unauthorized',
+        message: 'Not authenticated',
+      });
+      return;
+    }
 
-  const user = users.get(req.user.email);
-  if (!user) {
-    res.status(404).json({
-      error: 'Not Found',
-      message: 'User not found',
-    });
-    return;
-  }
+    const tenantId = req.user.tenantId || DEFAULT_TENANT_ID;
+    const user = await findUserById(tenantId, req.user.userId);
 
-  res.json({
-    user: {
-      id: user.id,
-      email: user.email,
-      role: user.role,
-      createdAt: user.createdAt,
-    },
-  });
-});
+    if (!user) {
+      res.status(404).json({
+        error: 'Not Found',
+        message: 'User not found',
+      });
+      return;
+    }
+
+    const role = req.user.role || (await getUserRole(tenantId, user.id)) || 'user';
+
+    res.json({
+      user: {
+        id: user.id,
+        email: user.email,
+        role,
+        createdAt: user.created_at,
+      },
+    });
+  }
+);
 
 /**
  * POST /auth/logout
