@@ -2,6 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { Mic, MicOff, Square, Loader2 } from 'lucide-react';
+// import { apiClient } from '../lib/api-client';
 
 interface VoiceInputProps {
   onTranscription: (text: string, isFinal: boolean) => void;
@@ -75,6 +76,8 @@ export default function VoiceInput({
     try {
       setIsConnecting(true);
 
+      // Note: We don't have a transcription session method in api-client yet
+      // We'll keep this as a direct fetch for now
       const response = await fetch('/api/chat/transcribe', {
         method: 'GET',
         headers: {
@@ -172,6 +175,8 @@ export default function VoiceInput({
           const arrayBuffer = await event.data.arrayBuffer();
 
           try {
+            // Note: We don't have a send audio chunk method in api-client yet
+            // We'll keep this as a direct fetch for now
             await fetch(`/api/chat/transcribe/${sessionIdRef.current}`, {
               method: 'POST',
               body: arrayBuffer,
@@ -214,6 +219,8 @@ export default function VoiceInput({
     // Close transcription session
     if (sessionIdRef.current) {
       try {
+        // Note: We don't have a close session method in api-client yet
+        // We'll keep this as a direct fetch for now
         await fetch(`/api/chat/transcribe/${sessionIdRef.current}`, {
           method: 'DELETE',
         });

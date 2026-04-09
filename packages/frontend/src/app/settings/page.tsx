@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { apiClient } from '../../lib/api-client';
 
 interface Provider {
   name: string;
@@ -55,18 +56,12 @@ export default function SettingsPage() {
       setLoading(true);
 
       // Load providers
-      const providersRes = await fetch('/api/tenant/providers');
-      if (providersRes.ok) {
-        const providersData = await providersRes.json();
-        setProviders(providersData.data);
-      }
+      const providersResponse = await apiClient.getProviders();
+      setProviders(providersResponse.data);
 
       // Load tenant configs
-      const configsRes = await fetch('/api/tenant/config');
-      if (configsRes.ok) {
-        const configsData = await configsRes.json();
-        setConfigs(configsData.data);
-      }
+      const configsResponse = await apiClient.getTenantConfigs();
+      setConfigs(configsResponse.data);
     } catch (error) {
       console.error('Failed to load data:', error);
     } finally {
@@ -157,36 +152,25 @@ export default function SettingsPage() {
       let response;
       if (editingConfig) {
         // Update existing config
-        response = await fetch(`/api/tenant/config/${editingConfig.id}`, {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(submitData),
-        });
+        response = await apiClient.updateTenantConfig(editingConfig.id, submitData);
       } else {
         // Create new config
-        response = await fetch('/api/tenant/config', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(submitData),
-        });
+        response = await apiClient.createTenantConfig(submitData);
       }
 
-      if (response.ok) {
+      if (response.success) {
         await loadData(); // Reload configs
         setShowAddForm(false);
         setEditingConfig(null);
         resetForm();
       } else {
-        const errorData = await response.json();
-        setErrors({ submit: errorData.error || 'Failed to save configuration' });
+        setErrors({ submit: 'Failed to save configuration' });
       }
     } catch (error) {
       console.error('Failed to save config:', error);
-      setErrors({ submit: 'Failed to save configuration' });
+      setErrors({
+        submit: error instanceof Error ? error.message : 'Failed to save configuration',
+      });
     } finally {
       setSaving(false);
     }
@@ -198,11 +182,9 @@ export default function SettingsPage() {
     }
 
     try {
-      const response = await fetch(`/api/tenant/config/${configId}`, {
-        method: 'DELETE',
-      });
+      const response = await apiClient.deleteTenantConfig(configId);
 
-      if (response.ok) {
+      if (response.success) {
         await loadData(); // Reload configs
       } else {
         alert('Failed to deactivate configuration');

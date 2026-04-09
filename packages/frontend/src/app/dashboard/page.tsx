@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { apiClient } from '../../lib/api-client';
 
 interface User {
   id: string;
@@ -17,21 +18,8 @@ export default function DashboardPage() {
   useEffect(() => {
     async function fetchUser() {
       try {
-        const response = await fetch('/api/auth/me');
-
-        if (!response.ok) {
-          router.push('/login');
-          return;
-        }
-
-        const data = await response.json();
-
-        if (!data.user) {
-          router.push('/login');
-          return;
-        }
-
-        setUser(data.user);
+        const response = await apiClient.getCurrentUser();
+        setUser(response.user);
       } catch {
         router.push('/login');
       } finally {
@@ -44,7 +32,7 @@ export default function DashboardPage() {
 
   const handleLogout = async () => {
     try {
-      await fetch('/api/auth/logout', { method: 'POST' });
+      await apiClient.logout();
     } finally {
       router.push('/login');
     }

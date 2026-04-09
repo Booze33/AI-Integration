@@ -8,7 +8,7 @@
 import { Pool } from 'pg';
 import path from 'path';
 // FIX 1: Import the runner directly from the library
-import * as pgMigrate from 'node-pg-migrate';
+import { runner } from 'node-pg-migrate';
 // FIX 2: Import child_process at the top
 import { execSync } from 'child_process';
 
@@ -47,11 +47,10 @@ export async function runMigrations(config: MigrationConfig): Promise<void> {
 
   const client = await pool.connect();
 
+  console.log('🔌 Connected to database, starting migrations...');
+
   try {
     console.log('🔄 Running database migrations...');
-
-    const runner =
-      typeof pgMigrate === 'function' ? pgMigrate : (pgMigrate as any).default || pgMigrate;
 
     await runner({
       dbClient: client,

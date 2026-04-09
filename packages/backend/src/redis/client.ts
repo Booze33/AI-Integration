@@ -1,6 +1,8 @@
 import { createClient, RedisClientType } from 'redis';
 
 let redisClient: RedisClientType | null = null;
+let connectionAttempts = 0;
+const MAX_CONNECTION_ATTEMPTS = 3;
 
 /**
  * Get or create Redis client singleton
@@ -10,11 +12,18 @@ export async function getRedisClient(): Promise<RedisClientType> {
     return redisClient;
   }
 
-  const redisUrl = process.env.REDIS_URL || 'redis://:redis@localhost:6379';
+  // Use host, port, password instead of url for better compatibility
+  // const redisUrl = process.env.REDIS_URL || 'redis://:redis@localhost:6379';
+  // const url = new URL(redisUrl);
+  const password = process.env.REDIS_PASSWORD;
+  const host = process.env.HOST;
+  const port = process.env.REDIS_PORT ? parseInt(process.env.REDIS_PORT) : 6379;
 
   redisClient = createClient({
-    url: redisUrl,
+    password,
     socket: {
+      host,
+      port,
       reconnectStrategy: (retries: number) => {
         if (retries > 10) {
           console.error('Redis: Max reconnection attempts reached');
@@ -26,19 +35,31 @@ export async function getRedisClient(): Promise<RedisClientType> {
   });
 
   redisClient.on('error', (err: Error) => {
-    console.error('Redis Client Error:', err);
+    console.error('Redis Client Error:', err.message);
   });
 
   redisClient.on('connect', () => {
     console.log('✅ Redis connected');
+    connectionAttempts = 0; // Reset on successful connection
   });
 
   redisClient.on('reconnecting', () => {
     console.log('🔄 Redis reconnecting...');
   });
 
-  await redisClient.connect();
-  return redisClient;
+  try {
+    connectionAttempts++;
+    if (connectionAttempts > MAX_CONNECTION_ATTEMPTS) {
+      throw new Error(`Failed to connect to Redis after ${MAX_CONNECTION_ATTEMPTS} attempts`);
+    }
+
+    await redisClient.connect();
+    return redisClient;
+  } catch (error) {
+    console.error('Failed to connect to Redis:', error);
+    redisClient = null; // Reset client so next call will try again
+    throw error;
+  }
 }
 
 /**

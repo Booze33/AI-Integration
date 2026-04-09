@@ -3,6 +3,7 @@
 import { useState, useCallback, useRef, DragEvent, ChangeEvent, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Upload, CheckCircle, XCircle, Clock, AlertCircle } from 'lucide-react';
+import { apiClient } from '../../lib/api-client';
 
 interface UserInfo {
   id: string;
@@ -35,24 +36,8 @@ export default function UploadPage() {
   useEffect(() => {
     async function verifyAuth() {
       try {
-        let res = await fetch('/api/auth/me', { credentials: 'include' });
-        if (res.status === 401 || res.status === 403) {
-          const refreshRes = await fetch('/api/auth/refresh', {
-            method: 'POST',
-            credentials: 'include',
-          });
-          if (refreshRes.ok) {
-            res = await fetch('/api/auth/me', { credentials: 'include' });
-          }
-        }
-
-        if (!res.ok) {
-          router.push('/login');
-          return;
-        }
-
-        const data = await res.json();
-        setUser(data.user);
+        const response = await apiClient.getCurrentUser();
+        setUser(response.user);
       } catch {
         router.push('/login');
       } finally {
@@ -119,31 +104,19 @@ export default function UploadPage() {
       setJobs((prev) => [...prev, newJob]);
 
       try {
-        const formData = new FormData();
-        formData.append('file', file);
-
-        const response = await fetch('/api/pipeline/upload', {
-          method: 'POST',
-          body: formData,
-        });
-
-        const data = await response.json();
-
-        if (!response.ok) {
-          throw new Error(data.message || 'Upload failed');
-        }
+        const response = await apiClient.uploadFile(file);
 
         // Update job with backend job ID and start polling
         setJobs((prev) =>
           prev.map((job) =>
             job.id === jobId
-              ? { ...job, id: data.jobId, status: 'pending' as const, progress: 0 }
+              ? { ...job, id: response.jobId, status: 'pending' as const, progress: 0 }
               : job
           )
         );
 
         // Start polling for status
-        pollJobStatus(data.jobId);
+        pollJobStatus(response.jobId);
       } catch (error) {
         console.error('Upload error:', error);
         setJobs((prev) =>
@@ -166,31 +139,25 @@ export default function UploadPage() {
   const pollJobStatus = useCallback(async (jobId: string) => {
     const poll = async () => {
       try {
-        const response = await fetch(`/api/pipeline/jobs/${jobId}`);
-        const data = await response.json();
+        const response = await apiClient.getJobStatus(jobId);
 
-        if (!response.ok) {
-          throw new Error(data.message || 'Status check failed');
-        }
-
-        const jobData = data.job;
         setJobs((prev) =>
           prev.map((job) =>
             job.id === jobId
               ? {
                   ...job,
-                  status: jobData.status,
-                  progress: jobData.progress || 0,
-                  fileId: jobData.fileId,
-                  chunks: jobData.chunks,
-                  error: jobData.error,
+                  status: response.status,
+                  progress: response.progress || 0,
+                  fileId: response.result?.fileId,
+                  chunks: response.result?.chunks,
+                  error: response.error,
                 }
               : job
           )
         );
 
         // Continue polling if not completed or failed
-        if (jobData.status !== 'completed' && jobData.status !== 'failed') {
+        if (response.status !== 'completed' && response.status !== 'failed') {
           setTimeout(poll, 2000); // Poll every 2 seconds
         }
       } catch (error) {

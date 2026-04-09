@@ -152,76 +152,11 @@ export interface ApiResponseError {
 
 export class ApiClient {
   private baseUrl: string;
-  private accessToken: string | null = null;
-  private refreshToken: string | null = null;
-  private isRefreshing = false;
-  private refreshPromise: Promise<AuthTokens> | null = null;
   private mockMode: boolean;
 
-  constructor(baseUrl: string = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001') {
+  constructor(baseUrl: string = '') {
     this.baseUrl = baseUrl;
     this.mockMode = process.env.NEXT_PUBLIC_MOCK_MODE === 'true';
-    this.loadTokens();
-  }
-
-  // ============================================================================
-  // Token Management
-  // ============================================================================
-
-  private loadTokens() {
-    if (typeof window !== 'undefined') {
-      this.accessToken = localStorage.getItem('accessToken');
-      this.refreshToken = localStorage.getItem('refreshToken');
-    }
-  }
-
-  private saveTokens(tokens: AuthTokens) {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('accessToken', tokens.accessToken);
-      localStorage.setItem('refreshToken', tokens.refreshToken);
-    }
-    this.accessToken = tokens.accessToken;
-    this.refreshToken = tokens.refreshToken;
-  }
-
-  private clearTokens() {
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem('accessToken');
-      localStorage.removeItem('refreshToken');
-    }
-    this.accessToken = null;
-    this.refreshToken = null;
-  }
-
-  private async refreshAccessToken(): Promise<AuthTokens> {
-    if (this.isRefreshing && this.refreshPromise) {
-      return this.refreshPromise;
-    }
-
-    if (!this.refreshToken) {
-      throw new Error('No refresh token available');
-    }
-
-    this.isRefreshing = true;
-    this.refreshPromise = this.request<RefreshResponse>('POST', '/auth/refresh', {
-      headers: {
-        Authorization: `Bearer ${this.refreshToken}`,
-      },
-    })
-      .then((response) => {
-        const tokens: AuthTokens = {
-          accessToken: response.accessToken,
-          refreshToken: response.refreshToken || this.refreshToken!,
-        };
-        this.saveTokens(tokens);
-        return tokens;
-      })
-      .finally(() => {
-        this.isRefreshing = false;
-        this.refreshPromise = null;
-      });
-
-    return this.refreshPromise;
   }
 
   // ============================================================================
@@ -237,7 +172,7 @@ export class ApiClient {
       params?: Record<string, string>;
     } = {}
   ): Promise<T> {
-    const url = new URL(endpoint, this.baseUrl);
+    const url = new URL(endpoint, this.baseUrl || window.location.origin);
 
     // Add query parameters
     if (options.params) {
@@ -251,14 +186,10 @@ export class ApiClient {
       ...options.headers,
     };
 
-    // Add authorization header if we have an access token
-    if (this.accessToken) {
-      headers['Authorization'] = `Bearer ${this.accessToken}`;
-    }
-
     const requestOptions: RequestInit = {
       method,
       headers,
+      credentials: 'include', // Include cookies for authentication
     };
 
     if (options.body && method !== 'GET') {
@@ -273,19 +204,6 @@ export class ApiClient {
         `Network error: ${error instanceof Error ? error.message : 'Unknown error'}`,
         0
       );
-    }
-
-    // Handle token refresh on 401
-    if (response.status === 401 && this.refreshToken && !endpoint.includes('/refresh')) {
-      try {
-        await this.refreshAccessToken();
-        // Retry the request with new token
-        headers['Authorization'] = `Bearer ${this.accessToken}`;
-        response = await fetch(url.toString(), { ...requestOptions, headers });
-      } catch {
-        this.clearTokens();
-        throw new ApiError('Authentication failed', 401);
-      }
     }
 
     if (!response.ok) {
@@ -328,51 +246,33 @@ export class ApiClient {
         accessToken: 'mock-access-token',
         refreshToken: 'mock-refresh-token',
       };
-      this.saveTokens({
-        accessToken: mockResponse.accessToken,
-        refreshToken: mockResponse.refreshToken,
-      });
       return mockResponse;
     }
 
-    const response = await this.request<LoginResponse>('POST', '/auth/login', {
+    const response = await this.request<LoginResponse>('POST', '/api/auth/login', {
       body: credentials,
-    });
-    this.saveTokens({
-      accessToken: response.accessToken,
-      refreshToken: response.refreshToken,
     });
     return response;
   }
 
   async register(userData: RegisterRequest): Promise<RegisterResponse> {
-    const response = await this.request<RegisterResponse>('POST', '/auth/register', {
+    const response = await this.request<RegisterResponse>('POST', '/api/auth/register', {
       body: userData,
-    });
-    this.saveTokens({
-      accessToken: response.accessToken,
-      refreshToken: response.refreshToken,
     });
     return response;
   }
 
   async logout(): Promise<void> {
     try {
-      await this.request('POST', '/auth/logout');
-    } finally {
-      this.clearTokens();
+      await this.request('POST', '/api/auth/logout');
+    } catch (error) {
+      // Logout should succeed even if the server request fails
+      console.error('Logout error:', error);
     }
   }
 
-  async refresh(): Promise<RefreshResponse> {
-    return this.refreshAccessToken().then((tokens) => ({
-      accessToken: tokens.accessToken,
-      refreshToken: tokens.refreshToken,
-    }));
-  }
-
   async getCurrentUser(): Promise<MeResponse> {
-    return this.request<MeResponse>('GET', '/auth/me');
+    return this.request<MeResponse>('GET', '/api/auth/me');
   }
 
   // ============================================================================
@@ -381,6 +281,30 @@ export class ApiClient {
 
   async getChatHistory(): Promise<ChatHistoryResponse> {
     return this.request<ChatHistoryResponse>('GET', '/api/chat/history');
+  }
+
+  async saveChatHistory(messages: ChatMessage[], streamId?: string): Promise<void> {
+    await this.request('POST', '/api/chat/history', {
+      body: { messages, streamId },
+    });
+  }
+
+  async startTranscriptionSession(): Promise<{ sessionId: string }> {
+    const response = await this.request<{ sessionId: string }>('GET', '/api/chat/transcribe');
+    return response;
+  }
+
+  async sendAudioChunk(sessionId: string, audioData: ArrayBuffer): Promise<void> {
+    await this.request('POST', `/api/chat/transcribe/${sessionId}`, {
+      body: audioData,
+      headers: {
+        'Content-Type': 'application/octet-stream',
+      },
+    });
+  }
+
+  async closeTranscriptionSession(sessionId: string): Promise<void> {
+    await this.request('DELETE', `/api/chat/transcribe/${sessionId}`);
   }
 
   async transcribeAudio(audioBlob: Blob, sessionId?: string): Promise<TranscriptionResponse> {

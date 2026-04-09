@@ -2,22 +2,12 @@
 
 import { useState, FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
+import { apiClient, RegisterRequest } from '../../lib/api-client';
 
 interface RegisterFormData {
   email: string;
   password: string;
   confirmPassword: string;
-}
-
-interface RegisterResponse {
-  message: string;
-  user: {
-    id: string;
-    email: string;
-    role: string;
-  };
-  accessToken: string;
-  refreshToken: string;
 }
 
 export default function RegisterPage() {
@@ -67,24 +57,12 @@ export default function RegisterPage() {
     setIsLoading(true);
 
     try {
-      const response = await fetch('/api/auth/register', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          email: formData.email,
-          password: formData.password,
-        }),
-      });
+      const userData: RegisterRequest = {
+        email: formData.email,
+        password: formData.password,
+      };
 
-      const data: RegisterResponse | { error: string; message: string } = await response.json();
-
-      if (!response.ok) {
-        throw new Error((data as any).message || 'Registration failed');
-      }
-
-      // Tokens are set as secure, httpOnly cookies by API route
+      await apiClient.register(userData);
       router.push('/dashboard');
     } catch (error) {
       setApiError(error instanceof Error ? error.message : 'An error occurred');

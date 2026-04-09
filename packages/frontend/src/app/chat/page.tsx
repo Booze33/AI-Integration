@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import VoiceInput from '../../components/VoiceInput';
+import { apiClient } from '../../lib/api-client';
 
 interface ChatMessage {
   id: string;
@@ -24,7 +25,7 @@ interface UserInfo {
   role: string;
 }
 
-const BACKEND_CHAT_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001/api/chat';
+const CHAT_URL = '/api/chat';
 
 const STORAGE_KEYS = {
   history: 'chatHistory',
@@ -83,24 +84,8 @@ export default function ChatPage() {
 
     async function verifyAuth() {
       try {
-        let res = await fetch('/api/auth/me', { credentials: 'include' });
-        if (res.status === 401 || res.status === 403) {
-          const refreshRes = await fetch('/api/auth/refresh', {
-            method: 'POST',
-            credentials: 'include',
-          });
-          if (refreshRes.ok) {
-            res = await fetch('/api/auth/me', { credentials: 'include' });
-          }
-        }
-
-        if (!res.ok) {
-          router.push('/login');
-          return;
-        }
-
-        const data = await res.json();
-        setUser(data.user);
+        const response = await apiClient.getCurrentUser();
+        setUser(response.user);
       } catch {
         router.push('/login');
       }
@@ -136,14 +121,8 @@ export default function ChatPage() {
 
   const saveChatHistory = async (historyMessages: ChatMessage[], streamId?: string) => {
     try {
-      await fetch('/api/chat/history', {
-        method: 'POST',
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ messages: historyMessages, streamId }),
-      });
+      // Use the apiClient's saveChatHistory method
+      await apiClient.saveChatHistory(historyMessages, streamId);
     } catch (err) {
       console.error('Failed to persist chat history:', err);
     }
@@ -227,7 +206,7 @@ export default function ChatPage() {
       const body: Record<string, unknown> = { messages: messagesPayload };
       if (streamId) body.streamId = streamId;
 
-      const response = await fetch(BACKEND_CHAT_URL, {
+      const response = await fetch(CHAT_URL, {
         method: 'POST',
         credentials: 'include',
         headers: {

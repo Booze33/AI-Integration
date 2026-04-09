@@ -2,21 +2,11 @@
 
 import { useState, FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
+import { apiClient, LoginRequest } from '../../lib/api-client';
 
 interface LoginFormData {
   email: string;
   password: string;
-}
-
-interface LoginResponse {
-  message: string;
-  user: {
-    id: string;
-    email: string;
-    role: string;
-  };
-  accessToken: string;
-  refreshToken: string;
 }
 
 export default function LoginPage() {
@@ -57,21 +47,12 @@ export default function LoginPage() {
     setIsLoading(true);
 
     try {
-      const response = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(formData),
-      });
+      const credentials: LoginRequest = {
+        email: formData.email,
+        password: formData.password,
+      };
 
-      const data: LoginResponse | { error: string; message: string } = await response.json();
-
-      if (!response.ok) {
-        throw new Error((data as any).message || 'Login failed');
-      }
-
-      // Tokens are set as secure, httpOnly cookies by API route
+      await apiClient.login(credentials);
       router.push('/dashboard');
     } catch (error) {
       setApiError(error instanceof Error ? error.message : 'An error occurred');
@@ -84,6 +65,7 @@ export default function LoginPage() {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
     // Clear error when user starts typing
+
     if (errors[name as keyof LoginFormData]) {
       setErrors((prev) => ({ ...prev, [name]: undefined }));
     }
