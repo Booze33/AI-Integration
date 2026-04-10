@@ -256,6 +256,7 @@ export class ApiClient {
   }
 
   async register(userData: RegisterRequest): Promise<RegisterResponse> {
+    console.log('Registering user with data:', this.baseUrl);
     const response = await this.request<RegisterResponse>('POST', '/api/auth/register', {
       body: userData,
     });

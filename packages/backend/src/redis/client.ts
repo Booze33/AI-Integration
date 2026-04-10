@@ -12,12 +12,27 @@ export async function getRedisClient(): Promise<RedisClientType> {
     return redisClient;
   }
 
-  // Use host, port, password instead of url for better compatibility
-  // const redisUrl = process.env.REDIS_URL || 'redis://:redis@localhost:6379';
-  // const url = new URL(redisUrl);
-  const password = process.env.REDIS_PASSWORD;
-  const host = process.env.HOST;
-  const port = process.env.REDIS_PORT ? parseInt(process.env.REDIS_PORT) : 6379;
+  // Parse Redis URL if provided, otherwise use individual components
+  let host = 'localhost';
+  let port = 6379;
+  let password: string | undefined;
+
+  if (process.env.REDIS_URL) {
+    try {
+      const redisUrl = new URL(process.env.REDIS_URL);
+      host = redisUrl.hostname;
+      port = parseInt(redisUrl.port) || 6379;
+      password = redisUrl.password || undefined;
+    } catch (error) {
+      console.warn('Invalid REDIS_URL, falling back to individual components');
+      console.warn('Error parsing REDIS_URL:', (error as Error).message);
+    }
+  } else {
+    // Fallback to individual environment variables
+    host = process.env.REDIS_HOST || process.env.HOST || 'localhost';
+    port = process.env.REDIS_PORT ? parseInt(process.env.REDIS_PORT) : 6379;
+    password = process.env.REDIS_PASSWORD;
+  }
 
   redisClient = createClient({
     password,

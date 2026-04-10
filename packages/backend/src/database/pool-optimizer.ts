@@ -120,10 +120,6 @@ export class OptimizedConnectionPool {
       if (stats.waitingCount > 0) {
         console.warn(`⚠️  Connection pool: ${stats.waitingCount} clients waiting`);
       }
-
-      if (stats.idleCount === 0) {
-        console.warn('⚠️  Connection pool: No idle connections available');
-      }
     } catch (error) {
       console.error('❌ Health check failed:', (error as Error).message);
     } finally {

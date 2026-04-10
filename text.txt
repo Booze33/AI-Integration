@@ -1,0 +1,5 @@
+// In performHealthCheck(), replace the idle check:
+if (stats.totalCount > 0 && stats.idleCount === 0) {
+  console.warn('⚠️  Connection pool: No idle connections available');
+}
+// If totalCount is 0 the pool hasn't been used yet — that's fine, don't warn

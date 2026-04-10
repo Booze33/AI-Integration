@@ -15,8 +15,6 @@ export async function POST(request: NextRequest) {
     // In production, adjust accordingly
     const backendUrl = process.env.BACKEND_URL || 'http://localhost:3001';
 
-    console.log('Register API request body:', backendUrl);
-
     const response = await fetch(`${backendUrl}/auth/register`, {
       method: 'POST',
       headers: {
@@ -24,8 +22,6 @@ export async function POST(request: NextRequest) {
       },
       body: JSON.stringify(body),
     });
-
-    console.log('Register API response:', response);
 
     const data = await response.json();
 

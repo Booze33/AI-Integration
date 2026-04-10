@@ -1,4 +1,4 @@
-import 'dotenv/config'; // ← must be the very first import
+import 'dotenv/config';
 import cors from 'cors';
 import express from 'express';
 import { Pool } from 'pg';
@@ -28,8 +28,12 @@ const env = validateEnv();
 printEnvConfig();
 
 const app = express();
-let pool: Pool | null = null;
+let sharedPool: Pool | null = null;
+let auditService: AuditService | null = null;
 
+// ---------------------------------------------------------------------------
+// CORS — before everything else
+// ---------------------------------------------------------------------------
 app.use(
   cors({
     origin: env.CORS_ORIGIN,
@@ -37,24 +41,19 @@ app.use(
   })
 );
 
-// Global audit service (injected into requests for tracking)
-let auditService: AuditService | null = null;
-
 // ---------------------------------------------------------------------------
-// Request logger — MUST be the first middleware so every request receives a
-// correlation ID (req.requestId / X-Request-ID header) before anything else
-// runs.  Skip high-frequency health-check paths to reduce noise.
+// Request logger — FIRST middleware, assigns correlation ID to every request
 // ---------------------------------------------------------------------------
 app.use(
   requestLogger({
-    skip: (req) => req.path === '/health',
+    skip: (req) => req.path === '/health' || req.path === '/favicon.ico',
   })
 );
 
 // ---------------------------------------------------------------------------
-// Audit logging middleware — attach audit service and client info to request
+// Audit middleware — attach audit service and client info
 // ---------------------------------------------------------------------------
-app.use((req, res, next) => {
+app.use((req, _res, next) => {
   if (auditService) {
     (req as any).auditService = auditService;
     (req as any).clientInfo = getClientInfo(req);
@@ -63,167 +62,155 @@ app.use((req, res, next) => {
 });
 
 // ---------------------------------------------------------------------------
-// Webhook routes — must be mounted BEFORE express.json() so that the
-// router-level express.raw() middleware can capture the raw body bytes
-// required for HMAC signature verification.
+// Health routes — BEFORE rate limiting and auth, no pool needed for /health
 // ---------------------------------------------------------------------------
-app.use('/api', webhookRoutes);
+app.get('/health', (_, res) => res.json({ status: 'ok' }));
 
-// Global JSON body parser (for all other routes)
-app.use(express.json());
-
-// ---------------------------------------------------------------------------
-// Rate limiting — applied after JSON parsing so req.user / req.tenantId are
-// available when auth middleware has already run.  The three scopes
-// (user › tenant › IP) are evaluated independently for each request.
-// Configure limits via RATE_LIMIT_* environment variables.
-// ---------------------------------------------------------------------------
-app.use('/api', ...createRateLimiter());
-
-function registerDatabaseRoutes(sharedPool: Pool) {
-  pool = sharedPool;
-  setAuthPool(sharedPool);
-  setTenantConfigPool(sharedPool);
-
-  app.use('/auth', authRoutes);
-  app.use('/api', createChatRoutes(sharedPool));
-  app.use('/api/tenant', tenantConfigRoutes);
-
-  app.get('/health', (_, res) => res.json({ status: 'ok' }));
-
-  app.get('/health/db', async (_, res) => {
-    const startTime = Date.now();
-
+app.get('/health/db', async (_, res) => {
+  if (!sharedPool) {
+    res.status(503).json({ status: 'error', message: 'Database not initialised yet' });
+    return;
+  }
+  const startTime = Date.now();
+  try {
+    const client = await sharedPool.connect();
     try {
-      // Test database connection
-      const client = await sharedPool.connect();
-      try {
-        // Run a simple query to verify connection
-        const result = await client.query('SELECT NOW() as time, current_database() as database');
-        const latency = Date.now() - startTime;
-
-        res.json({
-          status: 'ok',
-          database: {
-            connected: true,
-            name: result.rows[0].database,
-            latency: `${latency}ms`,
-            timestamp: result.rows[0].time,
-          },
-        });
-      } finally {
-        client.release();
-      }
-    } catch (error) {
-      const latency = Date.now() - startTime;
-
-      res.status(503).json({
-        status: 'error',
+      const result = await client.query('SELECT NOW() as time, current_database() as database');
+      res.json({
+        status: 'ok',
         database: {
-          connected: false,
-          latency: `${latency}ms`,
-          error: error instanceof Error ? error.message : 'Unknown error',
+          connected: true,
+          name: result.rows[0].database,
+          latency: `${Date.now() - startTime}ms`,
+          timestamp: result.rows[0].time,
         },
       });
+    } finally {
+      client.release();
     }
-  });
+  } catch (error) {
+    res.status(503).json({
+      status: 'error',
+      database: {
+        connected: false,
+        latency: `${Date.now() - startTime}ms`,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      },
+    });
+  }
+});
 
-  app.get('/health/detailed', async (_, res) => {
-    const startTime = Date.now();
-
+app.get('/health/detailed', async (_, res) => {
+  if (!sharedPool) {
+    res.status(503).json({ status: 'error', message: 'Database not initialised yet' });
+    return;
+  }
+  const startTime = Date.now();
+  try {
+    const client = await sharedPool.connect();
     try {
-      const client = await sharedPool.connect();
-      try {
-        const result = await client.query('SELECT NOW() as time, current_database() as database');
-        const latency = Date.now() - startTime;
-
-        res.json({
-          status: 'ok',
-          database: {
-            connected: true,
-            name: result.rows[0].database,
-            latency: `${latency}ms`,
-            timestamp: result.rows[0].time,
-          },
-          pool: {
-            totalCount: sharedPool.totalCount,
-            idleCount: sharedPool.idleCount,
-            waitingCount: sharedPool.waitingCount,
-          },
-          server: {
-            uptime: process.uptime(),
-            memory: process.memoryUsage(),
-            nodeVersion: process.version,
-          },
-        });
-      } finally {
-        client.release();
-      }
-    } catch (error) {
-      const latency = Date.now() - startTime;
-
-      res.status(503).json({
-        status: 'error',
+      const result = await client.query('SELECT NOW() as time, current_database() as database');
+      res.json({
+        status: 'ok',
         database: {
-          connected: false,
-          latency: `${latency}ms`,
-          error: error instanceof Error ? error.message : 'Unknown error',
+          connected: true,
+          name: result.rows[0].database,
+          latency: `${Date.now() - startTime}ms`,
+          timestamp: result.rows[0].time,
         },
         pool: {
           totalCount: sharedPool.totalCount,
           idleCount: sharedPool.idleCount,
           waitingCount: sharedPool.waitingCount,
         },
+        server: {
+          uptime: process.uptime(),
+          memory: process.memoryUsage(),
+          nodeVersion: process.version,
+        },
       });
+    } finally {
+      client.release();
     }
-  });
-}
+  } catch (error) {
+    res.status(503).json({
+      status: 'error',
+      database: {
+        connected: false,
+        latency: `${Date.now() - startTime}ms`,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      },
+      pool: sharedPool
+        ? {
+            totalCount: sharedPool.totalCount,
+            idleCount: sharedPool.idleCount,
+            waitingCount: sharedPool.waitingCount,
+          }
+        : null,
+    });
+  }
+});
 
-// Pipeline routes (file upload and processing)
+// ---------------------------------------------------------------------------
+// Webhook routes — BEFORE express.json() so raw body is captured for HMAC
+// ---------------------------------------------------------------------------
+app.use('/api', webhookRoutes);
+
+// ---------------------------------------------------------------------------
+// JSON body parser
+// ---------------------------------------------------------------------------
+app.use(express.json());
+
+// ---------------------------------------------------------------------------
+// Rate limiting
+// ---------------------------------------------------------------------------
+app.use('/api', ...createRateLimiter());
+
+// ---------------------------------------------------------------------------
+// Pipeline routes — no auth required at route level
+// ---------------------------------------------------------------------------
 app.use('/api/pipeline', pipelineRoutes);
 
 // ---------------------------------------------------------------------------
-// Error handling — MUST come after all routes
+// Start server
 // ---------------------------------------------------------------------------
-
-// 404 — catches any request that didn't match a route above
-app.use(notFoundHandler);
-
-// Global error handler — formats all thrown errors as structured JSON.
-// Never leaks stack traces in production.
-app.use(errorHandler);
-
-// ---------------------------------------------------------------------------
-// Start server with automatic migrations
-// ---------------------------------------------------------------------------
-
 async function startServer() {
   try {
-    // Run database migrations on startup
-    const databaseUrl = env.DATABASE_URL;
-
     await runMigrations({
-      databaseUrl,
+      databaseUrl: env.DATABASE_URL,
       dir: __dirname + '/database/migrations',
       direction: 'up',
       verbose: env.NODE_ENV === 'development',
     });
 
     const optimizedDb = await setupOptimizedDatabase({
-      connectionString: databaseUrl,
+      connectionString: env.DATABASE_URL,
       enableMetrics: true,
       enableCache: true,
     });
-    const sharedPool = optimizedDb.pool.getPool();
-    registerDatabaseRoutes(sharedPool);
 
-    // Initialize audit service if enabled
+    sharedPool = optimizedDb.pool.getPool();
+
+    // Wire pool into services that need it
+    setAuthPool(sharedPool);
+    setTenantConfigPool(sharedPool);
+
+    // Register pool-dependent routes NOW, after pool exists
+    // These must be registered before notFoundHandler below
+    app.use('/auth', authRoutes);
+    app.use('/api', createChatRoutes(sharedPool));
+    app.use('/api/tenant', tenantConfigRoutes);
+
+    // 404 and error handlers — MUST be last, registered here so they come
+    // after all route registrations above
+    app.use(notFoundHandler);
+    app.use(errorHandler);
+
     if (env.ENABLE_AUDIT_LOGGING) {
       auditService = createAuditService(sharedPool);
       console.log('✅ Audit logging initialized');
     }
 
-    // Start Express server
     const port = env.PORT;
     app.listen(port, env.HOST, () => {
       console.log(`🚀 Backend running on http://${env.HOST}:${port}`);
@@ -237,10 +224,7 @@ async function startServer() {
 
 // ---------------------------------------------------------------------------
 // Process-level safety nets
-// These catch errors that escape all try/catch and async boundaries.
-// Log and exit — never silently swallow them.
 // ---------------------------------------------------------------------------
-
 process.on('uncaughtException', (err: Error) => {
   console.error('💥 uncaughtException — shutting down:', err);
   process.exit(1);
@@ -253,23 +237,20 @@ process.on('unhandledRejection', (reason: unknown) => {
 
 async function shutdown(): Promise<void> {
   console.log('Shutting down gracefully...');
-
   try {
-    if (pool) {
-      await pool.end();
+    if (sharedPool) {
+      await sharedPool.end();
       console.log('✅ Database pool closed');
     }
   } catch (error) {
     console.error('Error closing database pool:', error);
   }
-
   try {
     await closeRedisClient();
     console.log('✅ Redis client closed');
   } catch (error) {
     console.error('Error closing Redis client:', error);
   }
-
   process.exit(0);
 }
 
