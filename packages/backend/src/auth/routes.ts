@@ -389,6 +389,8 @@ router.get(
     const tenantId = req.user.tenantId || DEFAULT_TENANT_ID;
     const user = await findUserById(tenantId, req.user.userId);
 
+    console.log('=========================Authenticated user info:', user);
+
     if (!user) {
       res.status(404).json({
         error: 'Not Found',

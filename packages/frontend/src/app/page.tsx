@@ -2,11 +2,11 @@ import Link from 'next/link';
 
 export default function Home() {
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50">
+    <div className="min-h-screen bg-linear-to-br from-blue-50 via-white to-indigo-50">
       {/* Header */}
-      <header className="bg-white/80 backdrop-blur-md border-b border-gray-200/50 sticky top-0 z-10">
+      <header className="bg-white/80 backdrop-blur-md border-b border-gray-200/50 sticky top-0 z-10 h-16 flex flex-row justify-center">
         <div className="container mx-auto px-4 py-4 flex justify-between items-center">
-          <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
+          <h1 className="text-2xl font-bold bg-linear-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
             AI Platform
           </h1>
           <nav className="hidden md:flex gap-6">
@@ -23,10 +23,10 @@ export default function Home() {
       {/* Hero Section */}
       <div className="container mx-auto px-4 py-20 md:py-32">
         <div className="text-center space-y-8 animate-fadeIn">
-          <div className="space-y-4">
+          <div className="space-y-4 flex flex-col items-center">
             <h2 className="text-5xl md:text-7xl font-bold text-gray-900 leading-tight">
               AI Integration{' '}
-              <span className="text-transparent bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text">
+              <span className="text-transparent bg-linear-to-r from-blue-600 to-indigo-600 bg-clip-text">
                 Platform
               </span>
             </h2>
@@ -40,7 +40,7 @@ export default function Home() {
           <div className="flex flex-col md:flex-row gap-4 justify-center pt-6">
             <Link
               href="/login"
-              className="px-8 py-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-lg font-semibold transition-all transform hover:scale-105 shadow-lg hover:shadow-xl"
+              className="px-16 py-4 bg-linear-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-lg font-semibold transition-all transform hover:scale-105 shadow-lg hover:shadow-xl"
             >
               Sign In
             </Link>
@@ -52,7 +52,7 @@ export default function Home() {
             </Link>
             <Link
               href="/chat"
-              className="px-8 py-4 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white rounded-lg font-semibold transition-all transform hover:scale-105 shadow-lg hover:shadow-xl"
+              className="px-8 py-4 bg-linear-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white rounded-lg font-semibold transition-all transform hover:scale-105 shadow-lg hover:shadow-xl"
             >
               Try Chat
             </Link>

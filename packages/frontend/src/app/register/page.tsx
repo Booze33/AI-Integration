@@ -81,18 +81,23 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-md w-full space-y-8">
-        <div>
-          <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
-            Create your account
-          </h2>
-        </div>
-        <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
-          <div className="rounded-md shadow-sm -space-y-px">
-            <div>
-              <label htmlFor="email" className="sr-only">
-                Email address
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
+      <div className="w-full max-w-md">
+        <div className="bg-white rounded-2xl shadow-xl p-8 space-y-6 border border-gray-100 animate-slideIn">
+          {/* Header */}
+          <div className="space-y-2">
+            <div className="w-12 h-12 bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl flex items-center justify-center">
+              <span className="text-xl font-bold text-white">🚀</span>
+            </div>
+            <h2 className="text-3xl font-bold text-gray-900">Create Account</h2>
+            <p className="text-gray-600">Join the AI platform to get started</p>
+          </div>
+
+          <form className="space-y-4" onSubmit={handleSubmit}>
+            {/* Email Input */}
+            <div className="space-y-2">
+              <label htmlFor="email" className="block text-sm font-medium text-gray-700">
+                Email Address
               </label>
               <input
                 id="email"
@@ -100,17 +105,21 @@ export default function RegisterPage() {
                 type="email"
                 autoComplete="email"
                 required
-                className={`appearance-none rounded-none relative block w-full px-3 py-2 border ${
-                  errors.email ? 'border-red-300' : 'border-gray-300'
-                } placeholder-gray-500 text-gray-900 rounded-t-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm`}
-                placeholder="Email address"
+                className={`w-full px-4 py-3 border-2 rounded-lg transition-colors placeholder-gray-400 focus:outline-none ${
+                  errors.email
+                    ? 'border-red-300 focus:border-red-500 bg-red-50'
+                    : 'border-gray-200 focus:border-blue-500 bg-gray-50'
+                }`}
+                placeholder="you@example.com"
                 value={formData.email}
                 onChange={handleChange}
               />
-              {errors.email && <p className="mt-1 text-sm text-red-600">{errors.email}</p>}
+              {errors.email && <p className="text-sm text-red-600 font-medium">{errors.email}</p>}
             </div>
-            <div>
-              <label htmlFor="password" className="sr-only">
+
+            {/* Password Input */}
+            <div className="space-y-2">
+              <label htmlFor="password" className="block text-sm font-medium text-gray-700">
                 Password
               </label>
               <input
@@ -119,17 +128,23 @@ export default function RegisterPage() {
                 type="password"
                 autoComplete="new-password"
                 required
-                className={`appearance-none rounded-none relative block w-full px-3 py-2 border ${
-                  errors.password ? 'border-red-300' : 'border-gray-300'
-                } placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm`}
-                placeholder="Password (min 8 characters)"
+                className={`w-full px-4 py-3 border-2 rounded-lg transition-colors placeholder-gray-400 focus:outline-none ${
+                  errors.password
+                    ? 'border-red-300 focus:border-red-500 bg-red-50'
+                    : 'border-gray-200 focus:border-blue-500 bg-gray-50'
+                }`}
+                placeholder="•••••••• (min 8 characters)"
                 value={formData.password}
                 onChange={handleChange}
               />
-              {errors.password && <p className="mt-1 text-sm text-red-600">{errors.password}</p>}
+              {errors.password && (
+                <p className="text-sm text-red-600 font-medium">{errors.password}</p>
+              )}
             </div>
-            <div>
-              <label htmlFor="confirmPassword" className="sr-only">
+
+            {/* Confirm Password Input */}
+            <div className="space-y-2">
+              <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700">
                 Confirm Password
               </label>
               <input
@@ -138,41 +153,105 @@ export default function RegisterPage() {
                 type="password"
                 autoComplete="new-password"
                 required
-                className={`appearance-none rounded-none relative block w-full px-3 py-2 border ${
-                  errors.confirmPassword ? 'border-red-300' : 'border-gray-300'
-                } placeholder-gray-500 text-gray-900 rounded-b-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm`}
-                placeholder="Confirm Password"
+                className={`w-full px-4 py-3 border-2 rounded-lg transition-colors placeholder-gray-400 focus:outline-none ${
+                  errors.confirmPassword
+                    ? 'border-red-300 focus:border-red-500 bg-red-50'
+                    : 'border-gray-200 focus:border-blue-500 bg-gray-50'
+                }`}
+                placeholder="••••••••"
                 value={formData.confirmPassword}
                 onChange={handleChange}
               />
               {errors.confirmPassword && (
-                <p className="mt-1 text-sm text-red-600">{errors.confirmPassword}</p>
+                <p className="text-sm text-red-600 font-medium">{errors.confirmPassword}</p>
               )}
             </div>
-          </div>
 
-          {apiError && (
-            <div className="rounded-md bg-red-50 p-4">
-              <div className="text-sm text-red-700">{apiError}</div>
+            {/* Error Alert */}
+            {apiError && (
+              <div className="rounded-lg bg-red-50 border border-red-200 p-4">
+                <p className="text-sm text-red-700 font-medium">❌ {apiError}</p>
+              </div>
+            )}
+
+            {/* Password Requirements */}
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+              <p className="text-sm font-medium text-blue-800 mb-1">Password Requirements:</p>
+              <ul className="text-xs text-blue-700 space-y-1">
+                <li className="flex items-center">
+                  <span
+                    className={`w-2 h-2 rounded-full mr-2 ${formData.password.length >= 8 ? 'bg-green-500' : 'bg-gray-300'}`}
+                  ></span>
+                  At least 8 characters
+                </li>
+                <li className="flex items-center">
+                  <span
+                    className={`w-2 h-2 rounded-full mr-2 ${/[A-Z]/.test(formData.password) ? 'bg-green-500' : 'bg-gray-300'}`}
+                  ></span>
+                  Contains uppercase letter
+                </li>
+                <li className="flex items-center">
+                  <span
+                    className={`w-2 h-2 rounded-full mr-2 ${/[a-z]/.test(formData.password) ? 'bg-green-500' : 'bg-gray-300'}`}
+                  ></span>
+                  Contains lowercase letter
+                </li>
+                <li className="flex items-center">
+                  <span
+                    className={`w-2 h-2 rounded-full mr-2 ${/\d/.test(formData.password) ? 'bg-green-500' : 'bg-gray-300'}`}
+                  ></span>
+                  Contains number
+                </li>
+              </ul>
             </div>
-          )}
 
-          <div>
+            {/* Submit Button */}
             <button
               type="submit"
               disabled={isLoading}
-              className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full py-3 px-4 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white font-semibold rounded-lg transition-all transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none shadow-lg hover:shadow-xl mt-2"
             >
-              {isLoading ? 'Creating account...' : 'Create account'}
+              {isLoading ? (
+                <span className="flex items-center justify-center gap-2">
+                  <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                  Creating account...
+                </span>
+              ) : (
+                'Create Account'
+              )}
             </button>
+          </form>
+
+          {/* Divider */}
+          <div className="relative">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-gray-300"></div>
+            </div>
+            <div className="relative flex justify-center text-sm">
+              <span className="px-2 bg-white text-gray-500">Already have an account?</span>
+            </div>
           </div>
 
-          <div className="text-center">
-            <a href="/login" className="font-medium text-indigo-600 hover:text-indigo-500">
-              Already have an account? Sign in
+          {/* Sign In Link */}
+          <a
+            href="/login"
+            className="w-full py-3 px-4 border-2 border-blue-600 text-blue-600 font-semibold rounded-lg hover:bg-blue-50 transition-colors text-center block"
+          >
+            Sign In Instead
+          </a>
+
+          {/* Footer */}
+          <p className="text-center text-gray-600 text-sm mt-6">
+            By creating an account, you agree to our{' '}
+            <a href="#" className="text-blue-600 hover:text-blue-700 font-medium">
+              Terms of Service
+            </a>{' '}
+            and{' '}
+            <a href="#" className="text-blue-600 hover:text-blue-700 font-medium">
+              Privacy Policy
             </a>
-          </div>
-        </form>
+          </p>
+        </div>
       </div>
     </div>
   );

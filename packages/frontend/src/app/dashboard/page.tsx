@@ -40,7 +40,7 @@ export default function DashboardPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center">
+      <div className="min-h-screen bg-linear-to-br from-gray-50 to-gray-100 flex items-center justify-center">
         <div className="text-center space-y-4">
           <div className="w-12 h-12 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mx-auto"></div>
           <p className="text-gray-600 font-medium">Loading your dashboard...</p>
@@ -54,13 +54,13 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-gray-100">
+    <div className="min-h-screen bg-linear-to-br from-gray-50 via-white to-gray-100">
       {/* Header */}
       <header className="bg-white border-b border-gray-200 sticky top-0 z-10 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-6">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-lg flex items-center justify-center">
+              <div className="w-10 h-10 bg-linear-to-br from-blue-600 to-indigo-600 rounded-lg flex items-center justify-center">
                 <span className="text-white font-bold">A</span>
               </div>
               <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
@@ -89,15 +89,15 @@ export default function DashboardPage() {
               </div>
 
               <div className="grid md:grid-cols-3 gap-4 pt-4">
-                <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl p-6 border border-blue-200">
+                <div className="bg-linear-to-br from-blue-50 to-blue-100 rounded-xl p-6 border border-blue-200">
                   <p className="text-blue-600 font-semibold text-sm mb-2">📧 Email</p>
                   <p className="text-gray-900 font-mono text-sm break-all">{user.email}</p>
                 </div>
-                <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-xl p-6 border border-purple-200">
+                <div className="bg-linear-to-br from-purple-50 to-purple-100 rounded-xl p-6 border border-purple-200">
                   <p className="text-purple-600 font-semibold text-sm mb-2">👤 Role</p>
                   <p className="text-gray-900 font-mono text-sm capitalize">{user.role}</p>
                 </div>
-                <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-xl p-6 border border-green-200">
+                <div className="bg-linear-to-br from-green-50 to-green-100 rounded-xl p-6 border border-green-200">
                   <p className="text-green-600 font-semibold text-sm mb-2">🆔 User ID</p>
                   <p className="text-gray-900 font-mono text-sm truncate">
                     {user.id.substring(0, 12)}...
@@ -114,13 +114,13 @@ export default function DashboardPage() {
               <div className="space-y-3">
                 <a
                   href="/chat"
-                  className="block px-4 py-3 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white rounded-lg font-medium text-center transition-all transform hover:scale-105"
+                  className="block px-4 py-3 bg-linear-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white rounded-lg font-medium text-center transition-all transform hover:scale-105"
                 >
                   💬 Start Chat
                 </a>
                 <a
                   href="/upload"
-                  className="block px-4 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-lg font-medium text-center transition-all transform hover:scale-105"
+                  className="block px-4 py-3 bg-linear-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-lg font-medium text-center transition-all transform hover:scale-105"
                 >
                   📤 Upload File
                 </a>
