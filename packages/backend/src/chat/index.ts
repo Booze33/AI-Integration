@@ -12,6 +12,7 @@
 
 import express, { Router as ExpressRouter, Request, Response } from 'express';
 import { getProvider, ChatMessage, ChatOptions } from '../providers';
+import type { AIProvider } from '../providers';
 import { randomUUID } from 'crypto';
 import { Pool } from 'pg';
 import { authenticate, requireViewer, AuthenticatedRequest } from '../auth/middleware';
@@ -125,6 +126,9 @@ interface ChatRequestBody {
   stop?: string[];
   streamId?: string; // For reconnect support
 }
+
+type RealtimeSession = Awaited<ReturnType<NonNullable<AIProvider['createRealtimeSession']>>>;
+const transcriptionSessions = new Map<string, RealtimeSession>();
 
 /**
  * Create chat routes with database pool
@@ -248,13 +252,10 @@ export function createChatRoutes(pool: Pool): ExpressRouter {
           aborted = true;
           clearInterval(heartbeatInterval);
           // Clean up session on disconnect
-          const sessions = (global as any).transcriptionSessions;
-          if (sessions) {
-            const session = sessions.get(sessionId);
-            if (session) {
-              session.close();
-              sessions.delete(sessionId);
-            }
+          const session = transcriptionSessions.get(sessionId);
+          if (session) {
+            session.close();
+            transcriptionSessions.delete(sessionId);
           }
         });
 
@@ -297,14 +298,12 @@ export function createChatRoutes(pool: Pool): ExpressRouter {
             }
             clearInterval(heartbeatInterval);
             // Clean up session
-            const sessions = (global as any).transcriptionSessions;
-            if (sessions) sessions.delete(sessionId);
+            transcriptionSessions.delete(sessionId);
           },
         });
 
         // Store session for cleanup
-        (global as any).transcriptionSessions = (global as any).transcriptionSessions || new Map();
-        (global as any).transcriptionSessions.set(sessionId, session);
+        transcriptionSessions.set(sessionId, session);
 
         // Send session started event
         await sendSSE(res, 'started', JSON.stringify({ sessionId }));
@@ -349,8 +348,7 @@ export function createChatRoutes(pool: Pool): ExpressRouter {
         }
 
         const { sessionId } = req.params;
-        const sessions = (global as any).transcriptionSessions || new Map();
-        const session = sessions.get(sessionId);
+        const session = transcriptionSessions.get(sessionId);
 
         if (!session) {
           res.status(404).json({ error: 'Session not found' });
@@ -395,12 +393,11 @@ export function createChatRoutes(pool: Pool): ExpressRouter {
         }
 
         const { sessionId } = req.params;
-        const sessions = (global as any).transcriptionSessions || new Map();
-        const session = sessions.get(sessionId);
+        const session = transcriptionSessions.get(sessionId);
 
         if (session) {
           session.close();
-          sessions.delete(sessionId);
+          transcriptionSessions.delete(sessionId);
         }
 
         res.json({ success: true });

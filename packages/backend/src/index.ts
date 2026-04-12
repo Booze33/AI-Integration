@@ -3,6 +3,7 @@ import cors from 'cors';
 import express from 'express';
 import { Pool } from 'pg';
 import { setupOptimizedDatabase } from './database';
+import { createDiagnosticsRouter } from './database/diagnostics';
 import { runMigrations } from './database/migrate';
 import { authRoutes, setAuthPool } from './auth';
 import { createChatRoutes } from './chat';
@@ -31,6 +32,7 @@ printEnvConfig();
 const app = express();
 let sharedPool: Pool | null = null;
 let auditService: AuditService | null = null;
+let auditCleanupInterval: NodeJS.Timeout | null = null;
 
 // ---------------------------------------------------------------------------
 // CORS — before everything else
@@ -202,6 +204,15 @@ async function startServer() {
     app.use('/api', createChatRoutes(sharedPool));
     app.use('/api/tenant', tenantConfigRoutes);
     app.use('/api/dashboard', createDashboardRoutes(sharedPool));
+    app.use(
+      '/api/diagnostics',
+      createDiagnosticsRouter({
+        metricsCollector: optimizedDb.metrics ?? undefined,
+        cacheManager: optimizedDb.cache ?? undefined,
+        queryOptimizer: optimizedDb.optimizer ?? undefined,
+        pool: optimizedDb.pool,
+      })
+    );
 
     // 404 and error handlers — MUST be last, registered here so they come
     // after all route registrations above
@@ -209,7 +220,27 @@ async function startServer() {
     app.use(errorHandler);
 
     if (env.ENABLE_AUDIT_LOGGING) {
-      auditService = createAuditService(sharedPool);
+      auditService = createAuditService(sharedPool, env.AUDIT_LOG_RETENTION_DAYS);
+
+      // Run retention cleanup once per day.
+      auditCleanupInterval = setInterval(
+        async () => {
+          if (!auditService) {
+            return;
+          }
+
+          try {
+            const deletedCount = await auditService.cleanOldLogs();
+            if (deletedCount > 0) {
+              console.log(`🧹 Audit cleanup removed ${deletedCount} old log(s)`);
+            }
+          } catch (error) {
+            console.error('Audit cleanup failed:', error);
+          }
+        },
+        24 * 60 * 60 * 1000
+      );
+
       console.log('✅ Audit logging initialized');
     }
 
@@ -239,6 +270,10 @@ process.on('unhandledRejection', (reason: unknown) => {
 
 async function shutdown(): Promise<void> {
   console.log('Shutting down gracefully...');
+  if (auditCleanupInterval) {
+    clearInterval(auditCleanupInterval);
+    auditCleanupInterval = null;
+  }
   try {
     if (sharedPool) {
       await sharedPool.end();

@@ -9,6 +9,11 @@ import request from 'supertest';
 import express from 'express';
 import { pipelineRoutes } from '../routes';
 
+vi.mock('../../auth/middleware', () => ({
+  authenticate: (_req: any, _res: any, next: any) => next(),
+  requireViewer: (_req: any, _res: any, next: any) => next(),
+}));
+
 // Mock the pipeline service
 vi.mock('../pipeline', () => ({
   createPipelineService: vi.fn(() => ({

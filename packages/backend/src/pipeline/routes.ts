@@ -11,13 +11,14 @@
  */
 
 import { Router as ExpressRouter, Request, Response } from 'express';
-import { createPipelineService } from './pipeline';
+import { authenticate, requireViewer } from '../auth/middleware';
+import { getPipelineService } from './singleton';
 import { TextChunk } from './types';
 
 const router: ExpressRouter = ExpressRouter();
 
 // Create pipeline service instance
-const pipelineService = createPipelineService();
+const pipelineService = getPipelineService();
 
 /**
  * POST /upload
@@ -27,6 +28,8 @@ const pipelineService = createPipelineService();
  */
 router.post(
   '/upload',
+  authenticate as any,
+  requireViewer as any,
   pipelineService.getUploadMiddleware().single('file'),
   async (req: Request, res: Response) => {
     try {
@@ -92,6 +95,8 @@ router.post(
  */
 router.post(
   '/upload/async',
+  authenticate as any,
+  requireViewer as any,
   pipelineService.getUploadMiddleware().single('file'),
   async (req: Request, res: Response) => {
     try {
@@ -138,49 +143,54 @@ router.post(
  *
  * Get job status and result
  */
-router.get('/jobs/:jobId', (req: Request, res: Response) => {
-  const { jobId } = req.params;
+router.get(
+  '/jobs/:jobId',
+  authenticate as any,
+  requireViewer as any,
+  (req: Request, res: Response) => {
+    const { jobId } = req.params;
 
-  const job = pipelineService.getJobStatus(jobId);
+    const job = pipelineService.getJobStatus(jobId);
 
-  if (!job) {
-    res.status(404).json({
-      error: 'Job not found',
-      message: `No job found with ID: ${jobId}`,
+    if (!job) {
+      res.status(404).json({
+        error: 'Job not found',
+        message: `No job found with ID: ${jobId}`,
+      });
+      return;
+    }
+
+    res.json({
+      success: true,
+      job: {
+        id: job.id,
+        fileId: job.fileId,
+        status: job.status,
+        progress: job.progress,
+        chunks: job.chunks
+          ? {
+              count: job.chunks.length,
+              totalTokens: job.chunks.reduce(
+                (sum: number, chunk: TextChunk) => sum + (chunk.tokenCount || 0),
+                0
+              ),
+            }
+          : undefined,
+        error: job.error,
+        createdAt: job.createdAt,
+        updatedAt: job.updatedAt,
+        completedAt: job.completedAt,
+      },
     });
-    return;
   }
-
-  res.json({
-    success: true,
-    job: {
-      id: job.id,
-      fileId: job.fileId,
-      status: job.status,
-      progress: job.progress,
-      chunks: job.chunks
-        ? {
-            count: job.chunks.length,
-            totalTokens: job.chunks.reduce(
-              (sum: number, chunk: TextChunk) => sum + (chunk.tokenCount || 0),
-              0
-            ),
-          }
-        : undefined,
-      error: job.error,
-      createdAt: job.createdAt,
-      updatedAt: job.updatedAt,
-      completedAt: job.completedAt,
-    },
-  });
-});
+);
 
 /**
  * GET /jobs
  *
  * Get all jobs with optional status filter
  */
-router.get('/jobs', (req: Request, res: Response) => {
+router.get('/jobs', authenticate as any, requireViewer as any, (req: Request, res: Response) => {
   const status = req.query.status as string | undefined;
 
   let jobs = pipelineService.getAllJobs();
@@ -241,35 +251,40 @@ router.get('/stats', async (_req: Request, res: Response) => {
  *
  * Delete job and associated file
  */
-router.delete('/jobs/:jobId', async (req: Request, res: Response) => {
-  const { jobId } = req.params;
+router.delete(
+  '/jobs/:jobId',
+  authenticate as any,
+  requireViewer as any,
+  async (req: Request, res: Response) => {
+    const { jobId } = req.params;
 
-  const job = pipelineService.getJobStatus(jobId);
+    const job = pipelineService.getJobStatus(jobId);
 
-  if (!job) {
-    res.status(404).json({
-      error: 'Job not found',
-      message: `No job found with ID: ${jobId}`,
-    });
-    return;
+    if (!job) {
+      res.status(404).json({
+        error: 'Job not found',
+        message: `No job found with ID: ${jobId}`,
+      });
+      return;
+    }
+
+    try {
+      // Delete the uploaded file
+      // Note: In a real implementation, you'd need to get the file path from the job
+      // For now, we'll just clean up the job from memory
+
+      res.json({
+        success: true,
+        message: 'Job deleted successfully',
+      });
+    } catch (error) {
+      console.error('Delete error:', error);
+      res.status(500).json({
+        error: 'Failed to delete job',
+        message: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
   }
-
-  try {
-    // Delete the uploaded file
-    // Note: In a real implementation, you'd need to get the file path from the job
-    // For now, we'll just clean up the job from memory
-
-    res.json({
-      success: true,
-      message: 'Job deleted successfully',
-    });
-  } catch (error) {
-    console.error('Delete error:', error);
-    res.status(500).json({
-      error: 'Failed to delete job',
-      message: error instanceof Error ? error.message : 'Unknown error',
-    });
-  }
-});
+);
 
 export { router as pipelineRoutes };

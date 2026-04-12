@@ -8,14 +8,14 @@
 import { Router as ExpressRouter, Request, Response } from 'express';
 import { Pool } from 'pg';
 import { authenticate, requireViewer, AuthenticatedRequest } from '../auth/middleware';
-import { createPipelineService } from '../pipeline/pipeline';
+import { getPipelineService } from '../pipeline/singleton';
 
 /**
  * Create dashboard routes with database pool
  */
 export function createDashboardRoutes(pool: Pool): ExpressRouter {
   const router: ExpressRouter = ExpressRouter();
-  const pipelineService = createPipelineService();
+  const pipelineService = getPipelineService();
 
   /**
    * GET /stats

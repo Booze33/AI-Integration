@@ -25,8 +25,8 @@ const envSchema = z.object({
   REDIS_URL: z.string().url('REDIS_URL must be a valid Redis connection URL'),
 
   // JWT configuration
-  JWT_PRIVATE_KEY: z.string().min(1, 'JWT_PRIVATE_KEY is required'),
-  JWT_PUBLIC_KEY: z.string().min(1, 'JWT_PUBLIC_KEY is required'),
+  JWT_PRIVATE_KEY: z.string().optional(),
+  JWT_PUBLIC_KEY: z.string().optional(),
   JWT_EXPIRY: z.string().default('15m'),
   JWT_REFRESH_EXPIRY: z.string().default('7d'),
 

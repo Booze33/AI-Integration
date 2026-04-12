@@ -24,7 +24,10 @@ export interface AuditEvent {
 }
 
 export class AuditService {
-  constructor(private pool: Pool) {}
+  constructor(
+    private pool: Pool,
+    private retentionDays: number = 90
+  ) {}
 
   /**
    * Initialize audit logging table
@@ -209,6 +212,20 @@ export class AuditService {
       changes: row.changes ? JSON.parse(row.changes) : undefined,
     }));
   }
+
+  /**
+   * Delete audit logs older than retention policy
+   */
+  async cleanOldLogs(): Promise<number> {
+    await this.ensureAuditTable();
+
+    const result = await this.pool.query(
+      `DELETE FROM app.audit_logs
+       WHERE timestamp < NOW() - INTERVAL '${this.retentionDays} days'`
+    );
+
+    return result.rowCount ?? 0;
+  }
 }
 
 /**
@@ -226,6 +243,6 @@ export function getClientInfo(req: any): { ipAddress: string; userAgent: string 
   return { ipAddress, userAgent };
 }
 
-export function createAuditService(pool: Pool): AuditService {
-  return new AuditService(pool);
+export function createAuditService(pool: Pool, retentionDays: number = 90): AuditService {
+  return new AuditService(pool, retentionDays);
 }
