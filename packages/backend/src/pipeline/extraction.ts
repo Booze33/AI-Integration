@@ -6,7 +6,7 @@
  * - mammoth for DOCX files
  */
 
-import { PDFParse } from 'pdf-parse';
+import * as pdfParse from 'pdf-parse';
 import mammoth from 'mammoth';
 import fs from 'fs/promises';
 import { ExtractionResult } from './types';
@@ -36,19 +36,14 @@ export class TextExtractionService {
    */
   private async extractFromPdf(fileId: string, buffer: Buffer): Promise<ExtractionResult> {
     try {
-      // Convert Buffer to Uint8Array for pdf-parse
-      const uint8Array = new Uint8Array(buffer);
-      const parser = new PDFParse(uint8Array);
-      const text = await parser.getText();
-      const info = await parser.getInfo();
-
+      const result = await (pdfParse as any)(buffer);
       return {
         fileId,
-        text: text.text || '',
-        pageCount: text.total,
+        text: result.text || '',
+        pageCount: result.numpages,
         metadata: {
-          info: info.info,
-          metadata: info.metadata,
+          info: result.info,
+          metadata: result.metadata,
         },
         extractedAt: new Date(),
       };

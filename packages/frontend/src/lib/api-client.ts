@@ -147,6 +147,29 @@ export interface ApiResponseError {
 }
 
 // ============================================================================
+// Dashboard Stats Types
+// ============================================================================
+
+export interface DashboardStats {
+  totalChats: number;
+  filesUploaded: number;
+  tokensUsed: number;
+  apiCalls: number;
+  queueStats?: {
+    waiting: number;
+    active: number;
+    completed: number;
+    failed: number;
+    delayed: number;
+  };
+}
+
+export interface DashboardStatsResponse {
+  success: boolean;
+  stats: DashboardStats;
+}
+
+// ============================================================================
 // API Client Class
 // ============================================================================
 
@@ -435,6 +458,34 @@ export class ApiClient {
     }
 
     return this.request<ProvidersResponse>('GET', '/api/tenant/providers');
+  }
+
+  // ============================================================================
+  // Dashboard Endpoints
+  // ============================================================================
+
+  async getDashboardStats(): Promise<DashboardStatsResponse> {
+    if (this.mockMode) {
+      // Mock dashboard stats response
+      return {
+        success: true,
+        stats: {
+          totalChats: 12,
+          filesUploaded: 8,
+          tokensUsed: 2500,
+          apiCalls: 156,
+          queueStats: {
+            waiting: 2,
+            active: 1,
+            completed: 45,
+            failed: 3,
+            delayed: 0,
+          },
+        },
+      };
+    }
+
+    return this.request<DashboardStatsResponse>('GET', '/api/dashboard/stats');
   }
 }
 

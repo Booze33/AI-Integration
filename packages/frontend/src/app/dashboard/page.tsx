@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { apiClient } from '../../lib/api-client';
+import { apiClient, DashboardStats } from '../../lib/api-client';
 
 interface User {
   id: string;
@@ -13,7 +13,10 @@ interface User {
 export default function DashboardPage() {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
+  const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [statsLoading, setStatsLoading] = useState(true);
+  const [statsError, setStatsError] = useState<string | null>(null);
 
   useEffect(() => {
     async function fetchUser() {
@@ -29,6 +32,47 @@ export default function DashboardPage() {
 
     fetchUser();
   }, [router]);
+
+  useEffect(() => {
+    async function fetchDashboardStats() {
+      if (!user) return;
+
+      try {
+        // Use the API client to fetch dashboard stats
+        const response = await apiClient.getDashboardStats();
+        if (response.success) {
+          setStats(response.stats);
+          setStatsError(null);
+        } else {
+          throw new Error('Failed to fetch stats');
+        }
+      } catch (error: any) {
+        console.error('Failed to fetch dashboard stats:', error);
+        setStatsError(error.message || 'Failed to load dashboard statistics');
+
+        // Use fallback mock stats when API is not available
+        setStats({
+          totalChats: 12,
+          filesUploaded: 8,
+          tokensUsed: 2500,
+          apiCalls: 156,
+          queueStats: {
+            waiting: 2,
+            active: 1,
+            completed: 45,
+            failed: 3,
+            delayed: 0,
+          },
+        });
+      } finally {
+        setStatsLoading(false);
+      }
+    }
+
+    if (user) {
+      fetchDashboardStats();
+    }
+  }, [user]);
 
   const handleLogout = async () => {
     try {
@@ -52,6 +96,33 @@ export default function DashboardPage() {
   if (!user) {
     return null;
   }
+
+  const statCards = [
+    {
+      label: 'Total Chats',
+      value: stats?.totalChats?.toString() || '0',
+      icon: '💬',
+      color: 'blue',
+    },
+    {
+      label: 'Files Uploaded',
+      value: stats?.filesUploaded?.toString() || '0',
+      icon: '📁',
+      color: 'purple',
+    },
+    {
+      label: 'Tokens Used',
+      value: stats?.tokensUsed?.toLocaleString() || '0',
+      icon: '🔑',
+      color: 'green',
+    },
+    {
+      label: 'API Calls',
+      value: stats?.apiCalls?.toLocaleString() || '0',
+      icon: '🔄',
+      color: 'orange',
+    },
+  ];
 
   return (
     <div className="min-h-screen bg-linear-to-br from-gray-50 via-white to-gray-100">
@@ -77,6 +148,14 @@ export default function DashboardPage() {
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+        {statsError && (
+          <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+            <p className="text-yellow-800 text-sm">
+              ⚠️ Using demo data: {statsError}. Start using the app to see real statistics!
+            </p>
+          </div>
+        )}
+
         <div className="grid md:grid-cols-3 gap-8">
           {/* User Info Card */}
           <div className="md:col-span-2">
@@ -137,22 +216,44 @@ export default function DashboardPage() {
 
         {/* Stats Section */}
         <div className="grid md:grid-cols-4 gap-4 mt-12">
-          {[
-            { label: 'Total Chats', value: '12', icon: '💬', color: 'blue' },
-            { label: 'Files Uploaded', value: '8', icon: '📁', color: 'purple' },
-            { label: 'Tokens Used', value: '2.5K', icon: '🔑', color: 'green' },
-            { label: 'API Calls', value: '156', icon: '🔄', color: 'orange' },
-          ].map((stat, i) => (
+          {statCards.map((stat, i) => (
             <div
               key={i}
               className={`bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow`}
             >
               <p className="text-3xl mb-2">{stat.icon}</p>
               <p className="text-gray-600 text-sm font-medium">{stat.label}</p>
-              <p className="text-2xl font-bold text-gray-900 mt-2">{stat.value}</p>
+              <p className="text-2xl font-bold text-gray-900 mt-2">
+                {statsLoading ? (
+                  <div className="h-8 w-16 bg-gray-200 rounded animate-pulse"></div>
+                ) : (
+                  stat.value
+                )}
+              </p>
             </div>
           ))}
         </div>
+
+        {/* Queue Stats Section */}
+        {stats?.queueStats && (
+          <div className="mt-12">
+            <h3 className="text-xl font-bold text-gray-900 mb-6">Queue Statistics</h3>
+            <div className="grid md:grid-cols-5 gap-4">
+              {[
+                { label: 'Waiting', value: stats.queueStats.waiting, color: 'yellow' },
+                { label: 'Active', value: stats.queueStats.active, color: 'blue' },
+                { label: 'Completed', value: stats.queueStats.completed, color: 'green' },
+                { label: 'Failed', value: stats.queueStats.failed, color: 'red' },
+                { label: 'Delayed', value: stats.queueStats.delayed, color: 'orange' },
+              ].map((queueStat, i) => (
+                <div key={i} className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                  <p className="text-gray-600 text-sm font-medium">{queueStat.label}</p>
+                  <p className="text-2xl font-bold text-gray-900 mt-2">{queueStat.value}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </main>
     </div>
   );
