@@ -170,6 +170,21 @@ interface WebSocketConfig {
   pongTimeout: number;
 }
 
+type RealtimeWebSocket = {
+  readyState: number;
+  onopen: (() => void) | null;
+  onmessage: ((event: { data: unknown }) => void) | null;
+  onerror: ((event: unknown) => void) | null;
+  onclose: ((event: unknown) => void) | null;
+  send: (data: string | Buffer | ArrayBuffer) => void;
+  close: () => void;
+};
+
+type RealtimeWebSocketConstructor = {
+  new (url: string): RealtimeWebSocket;
+  OPEN: number;
+};
+
 /**
  * Real-time transcription callback
  */
@@ -239,6 +254,36 @@ export class DeepgramProvider implements AIProvider {
       'Content-Type': 'application/json',
       Authorization: `Token ${this.apiKey}`,
     };
+  }
+
+  /**
+   * Resolve a WebSocket constructor for the current runtime.
+   */
+  private async resolveWebSocketConstructor(): Promise<RealtimeWebSocketConstructor> {
+    const globalWebSocket = globalThis.WebSocket as RealtimeWebSocketConstructor | undefined;
+    if (globalWebSocket) {
+      return globalWebSocket;
+    }
+
+    try {
+      const wsModule = (await import('ws')) as { WebSocket: RealtimeWebSocketConstructor };
+      if (wsModule.WebSocket) {
+        return wsModule.WebSocket;
+      }
+    } catch (error) {
+      throw new DeepgramProviderError({
+        message: 'WebSocket is not available in this runtime',
+        errorCode: 'websocket_unavailable',
+        isRetryable: false,
+        cause: error instanceof Error ? error : undefined,
+      });
+    }
+
+    throw new DeepgramProviderError({
+      message: 'WebSocket is not available in this runtime',
+      errorCode: 'websocket_unavailable',
+      isRetryable: false,
+    });
   }
 
   /**
@@ -372,7 +417,8 @@ export class DeepgramProvider implements AIProvider {
     close: () => void;
     getState: () => WebSocketState;
   }> {
-    let ws: WebSocket | null = null;
+    const WebSocketConstructor = await this.resolveWebSocketConstructor();
+    let ws: RealtimeWebSocket | null = null;
     let state: WebSocketState = WebSocketState.CLOSED;
     let reconnectAttempts = 0;
     let pingInterval: ReturnType<typeof setInterval> | null = null;
@@ -382,7 +428,7 @@ export class DeepgramProvider implements AIProvider {
 
     const connect = () => {
       state = WebSocketState.CONNECTING;
-      ws = new WebSocket(wsUrl);
+      ws = new WebSocketConstructor(wsUrl);
 
       ws.onopen = () => {
         state = WebSocketState.OPEN;
@@ -390,7 +436,7 @@ export class DeepgramProvider implements AIProvider {
 
         // Setup ping/pong for connection health
         pingInterval = setInterval(() => {
-          if (ws && ws.readyState === WebSocket.OPEN) {
+          if (ws && ws.readyState === WebSocketConstructor.OPEN) {
             ws.send(JSON.stringify({ type: 'KeepAlive' }));
 
             pongTimeout = setTimeout(() => {
@@ -487,7 +533,7 @@ export class DeepgramProvider implements AIProvider {
 
     return {
       send: (audio: Buffer | ArrayBuffer) => {
-        if (ws && ws.readyState === WebSocket.OPEN) {
+        if (ws && ws.readyState === WebSocketConstructor.OPEN) {
           ws.send(audio);
         }
       },

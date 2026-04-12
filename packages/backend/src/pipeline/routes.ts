@@ -100,6 +100,8 @@ router.post(
   pipelineService.getUploadMiddleware().single('file'),
   async (req: Request, res: Response) => {
     try {
+      await pipelineService.ensureQueueReady();
+
       if (!req.file) {
         res.status(400).json({
           error: 'No file uploaded',
@@ -231,6 +233,7 @@ router.get('/jobs', authenticate as any, requireViewer as any, (req: Request, re
  */
 router.get('/stats', async (_req: Request, res: Response) => {
   try {
+    await pipelineService.ensureQueueReady();
     const stats = await pipelineService.getQueueStats();
 
     res.json({
@@ -239,8 +242,8 @@ router.get('/stats', async (_req: Request, res: Response) => {
     });
   } catch (error) {
     console.error('Stats error:', error);
-    res.status(500).json({
-      error: 'Failed to get stats',
+    res.status(503).json({
+      error: 'Queue unavailable',
       message: error instanceof Error ? error.message : 'Unknown error',
     });
   }

@@ -9,6 +9,7 @@ import { DeepgramProvider, DeepgramProviderError } from '../implementations/deep
 
 const mockFetch = vi.fn();
 global.fetch = mockFetch;
+const originalWebSocket = globalThis.WebSocket;
 
 describe('DeepgramProvider', () => {
   let provider: DeepgramProvider;
@@ -23,6 +24,12 @@ describe('DeepgramProvider', () => {
   });
 
   afterEach(() => {
+    Object.defineProperty(globalThis, 'WebSocket', {
+      value: originalWebSocket,
+      configurable: true,
+      writable: true,
+    });
+    vi.doUnmock('ws');
     vi.restoreAllMocks();
   });
 
@@ -171,6 +178,64 @@ describe('DeepgramProvider', () => {
       mockFetch.mockRejectedValueOnce(new Error('Network error'));
       const result = await provider.healthCheck();
       expect(result).toBe(false);
+    });
+  });
+
+  describe('createRealtimeSession', () => {
+    it('should fall back to ws when global WebSocket is unavailable', async () => {
+      const send = vi.fn();
+      const close = vi.fn();
+
+      class MockWebSocket {
+        static OPEN = 1;
+        readyState = MockWebSocket.OPEN;
+        onopen: (() => void) | null = null;
+        onmessage: ((event: { data: unknown }) => void) | null = null;
+        onerror: ((event: unknown) => void) | null = null;
+        onclose: ((event: unknown) => void) | null = null;
+
+        constructor(_url: string) {
+          queueMicrotask(() => this.onopen?.());
+        }
+
+        send(data: string | Buffer | ArrayBuffer) {
+          send(data);
+        }
+
+        close() {
+          close();
+        }
+      }
+
+      vi.doMock('ws', () => ({ WebSocket: MockWebSocket }));
+      Object.defineProperty(globalThis, 'WebSocket', {
+        value: undefined,
+        configurable: true,
+        writable: true,
+      });
+
+      const session = await provider.createRealtimeSession();
+      await Promise.resolve();
+
+      const audio = Buffer.from('audio');
+      session.send(audio);
+      session.close();
+
+      expect(send).toHaveBeenCalledWith(audio);
+      expect(close).toHaveBeenCalled();
+    });
+
+    it('should throw a provider error when no WebSocket implementation is available', async () => {
+      vi.doMock('ws', () => {
+        throw new Error('ws unavailable');
+      });
+      Object.defineProperty(globalThis, 'WebSocket', {
+        value: undefined,
+        configurable: true,
+        writable: true,
+      });
+
+      await expect(provider.createRealtimeSession()).rejects.toThrow(DeepgramProviderError);
     });
   });
 });

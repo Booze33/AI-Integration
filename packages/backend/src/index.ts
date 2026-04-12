@@ -14,7 +14,8 @@ import { createDashboardRoutes } from './dashboard/routes';
 import { createRateLimiter } from './rate-limit';
 import { requestLogger } from './logger';
 import { notFoundHandler, errorHandler } from './errors';
-import { closeRedisClient } from './redis/client';
+import { closeRedisClient, getRedisClientHealth } from './redis/client';
+import { getPipelineService } from './pipeline/singleton';
 import {
   validateEnv,
   printEnvConfig,
@@ -33,6 +34,17 @@ const app = express();
 let sharedPool: Pool | null = null;
 let auditService: AuditService | null = null;
 let auditCleanupInterval: NodeJS.Timeout | null = null;
+
+function getUnifiedRedisHealth() {
+  const singleton = getRedisClientHealth();
+  const queue = getPipelineService().getQueueHealth();
+
+  return {
+    ready: singleton.ready && queue.ready,
+    singleton,
+    queue,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // CORS — before everything else
@@ -68,6 +80,23 @@ app.use((req, _res, next) => {
 // Health routes — BEFORE rate limiting and auth, no pool needed for /health
 // ---------------------------------------------------------------------------
 app.get('/health', (_, res) => res.json({ status: 'ok' }));
+
+app.get('/health/redis', (_req, res) => {
+  const redis = getUnifiedRedisHealth();
+
+  if (!redis.ready) {
+    res.status(503).json({
+      status: 'error',
+      redis,
+    });
+    return;
+  }
+
+  res.json({
+    status: 'ok',
+    redis,
+  });
+});
 
 app.get('/health/db', async (_, res) => {
   if (!sharedPool) {
@@ -131,6 +160,7 @@ app.get('/health/detailed', async (_, res) => {
           memory: process.memoryUsage(),
           nodeVersion: process.version,
         },
+        redis: getUnifiedRedisHealth(),
       });
     } finally {
       client.release();
@@ -150,6 +180,7 @@ app.get('/health/detailed', async (_, res) => {
             waitingCount: sharedPool.waitingCount,
           }
         : null,
+      redis: getUnifiedRedisHealth(),
     });
   }
 });

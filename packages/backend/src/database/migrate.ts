@@ -5,7 +5,6 @@
  * Uses node-pg-migrate for version-controlled database schema changes.
  */
 
-import { Pool } from 'pg';
 import path from 'path';
 // FIX 1: Import the runner directly from the library
 import { runner } from 'node-pg-migrate';
@@ -41,19 +40,13 @@ export async function runMigrations(config: MigrationConfig): Promise<void> {
     throw new Error('Database URL is required for migrations');
   }
 
-  const pool = new Pool({
-    connectionString: migrationConfig.databaseUrl,
-  });
-
-  const client = await pool.connect();
-
-  console.log('🔌 Connected to database, starting migrations...');
+  console.log('🔌 Starting migrations using databaseUrl...');
 
   try {
     console.log('🔄 Running database migrations...');
 
     await runner({
-      dbClient: client,
+      databaseUrl: migrationConfig.databaseUrl,
       migrationsTable: migrationConfig.migrationsTable ?? 'pgmigrations',
       dir: migrationConfig.dir ?? path.join(process.cwd(), 'src', 'database', 'migrations'),
       direction: migrationConfig.direction ?? 'up',
@@ -67,9 +60,6 @@ export async function runMigrations(config: MigrationConfig): Promise<void> {
   } catch (error) {
     console.error('❌ Migration failed:', error);
     throw error;
-  } finally {
-    client.release();
-    await pool.end();
   }
 }
 

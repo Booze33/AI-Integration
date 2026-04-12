@@ -1,8 +1,11 @@
 import { createClient, RedisClientType } from 'redis';
+import { resolveRedisConfigFromEnv } from './config';
 
 let redisClient: RedisClientType | null = null;
 let connectionAttempts = 0;
 const MAX_CONNECTION_ATTEMPTS = 3;
+let redisConnectionState: 'idle' | 'connecting' | 'ready' | 'error' | 'closed' = 'idle';
+let lastRedisError: string | null = null;
 
 /**
  * Get or create Redis client singleton
@@ -12,27 +15,7 @@ export async function getRedisClient(): Promise<RedisClientType> {
     return redisClient;
   }
 
-  // Parse Redis URL if provided, otherwise use individual components
-  let host = 'localhost';
-  let port = 6379;
-  let password: string | undefined;
-
-  if (process.env.REDIS_URL) {
-    try {
-      const redisUrl = new URL(process.env.REDIS_URL);
-      host = redisUrl.hostname;
-      port = parseInt(redisUrl.port) || 6379;
-      password = redisUrl.password || undefined;
-    } catch (error) {
-      console.warn('Invalid REDIS_URL, falling back to individual components');
-      console.warn('Error parsing REDIS_URL:', (error as Error).message);
-    }
-  } else {
-    // Fallback to individual environment variables
-    host = process.env.REDIS_HOST || process.env.HOST || 'localhost';
-    port = process.env.REDIS_PORT ? parseInt(process.env.REDIS_PORT) : 6379;
-    password = process.env.REDIS_PASSWORD;
-  }
+  const { host, port, password } = resolveRedisConfigFromEnv();
 
   redisClient = createClient({
     password,
@@ -50,19 +33,25 @@ export async function getRedisClient(): Promise<RedisClientType> {
   });
 
   redisClient.on('error', (err: Error) => {
+    redisConnectionState = 'error';
+    lastRedisError = err.message;
     console.error('Redis Client Error:', err.message);
   });
 
   redisClient.on('connect', () => {
     console.log('✅ Redis connected');
     connectionAttempts = 0; // Reset on successful connection
+    redisConnectionState = 'ready';
+    lastRedisError = null;
   });
 
   redisClient.on('reconnecting', () => {
+    redisConnectionState = 'connecting';
     console.log('🔄 Redis reconnecting...');
   });
 
   try {
+    redisConnectionState = 'connecting';
     connectionAttempts++;
     if (connectionAttempts > MAX_CONNECTION_ATTEMPTS) {
       throw new Error(`Failed to connect to Redis after ${MAX_CONNECTION_ATTEMPTS} attempts`);
@@ -71,6 +60,8 @@ export async function getRedisClient(): Promise<RedisClientType> {
     await redisClient.connect();
     return redisClient;
   } catch (error) {
+    redisConnectionState = 'error';
+    lastRedisError = error instanceof Error ? error.message : 'Unknown Redis connection error';
     console.error('Failed to connect to Redis:', error);
     redisClient = null; // Reset client so next call will try again
     throw error;
@@ -84,7 +75,27 @@ export async function closeRedisClient(): Promise<void> {
   if (redisClient) {
     await redisClient.quit();
     redisClient = null;
+    redisConnectionState = 'closed';
   }
+}
+
+/**
+ * Runtime health snapshot for the shared Redis singleton.
+ */
+export function getRedisClientHealth(): {
+  ready: boolean;
+  state: 'idle' | 'connecting' | 'ready' | 'error' | 'closed';
+  attempts: number;
+  maxAttempts: number;
+  lastError: string | null;
+} {
+  return {
+    ready: Boolean(redisClient && redisClient.isReady && redisConnectionState === 'ready'),
+    state: redisConnectionState,
+    attempts: connectionAttempts,
+    maxAttempts: MAX_CONNECTION_ATTEMPTS,
+    lastError: lastRedisError,
+  };
 }
 
 /**

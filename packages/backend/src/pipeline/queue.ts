@@ -14,6 +14,7 @@ import { Queue, Worker, QueueEvents, Job } from 'bullmq';
 import { PipelineJob, JobStatus, QueueJobData, QueueJobResult } from './types';
 import { TextExtractionService } from './extraction';
 import { TextChunkingService } from './chunking';
+import { resolveRedisConfigFromEnv } from '../redis/config';
 
 /**
  * Queue configuration
@@ -41,11 +42,7 @@ interface QueueConfig {
  * Default queue configuration
  */
 const DEFAULT_CONFIG: QueueConfig = {
-  redis: {
-    host: process.env.REDIS_HOST || 'localhost',
-    port: parseInt(process.env.REDIS_PORT || '6379', 10),
-    password: process.env.REDIS_PASSWORD,
-  },
+  redis: resolveRedisConfigFromEnv(),
   defaultJobOptions: {
     attempts: 3,
     backoff: {
@@ -71,6 +68,9 @@ export class QueueService {
   private chunkingService: TextChunkingService;
   private jobs: Map<string, PipelineJob>;
   private statusListeners: Map<string, Set<(status: PipelineJob) => void>>;
+  private ready = false;
+  private lastReadyError: string | null = null;
+  private readyPromise!: Promise<void>;
 
   constructor(config: Partial<QueueConfig> = {}) {
     const fullConfig = { ...DEFAULT_CONFIG, ...config };
@@ -99,6 +99,64 @@ export class QueueService {
 
     this.setupWorker(fullConfig.concurrency);
     this.setupEventHandlers();
+    this.readyPromise = this.initializeConnections();
+  }
+
+  /**
+   * Attempt to initialize all BullMQ connections.
+   */
+  private async initializeConnections(): Promise<void> {
+    try {
+      await Promise.all([
+        this.queue.waitUntilReady(),
+        this.deadLetterQueue.waitUntilReady(),
+        this.queueEvents.waitUntilReady(),
+        this.worker.waitUntilReady(),
+      ]);
+      this.ready = true;
+      this.lastReadyError = null;
+    } catch (error) {
+      this.ready = false;
+      this.lastReadyError =
+        error instanceof Error ? error.message : 'Unknown queue connection error';
+      throw error;
+    }
+  }
+
+  /**
+   * Ensure queue is ready before accepting operations.
+   */
+  async waitUntilReady(): Promise<void> {
+    if (this.ready) {
+      return;
+    }
+
+    try {
+      await this.readyPromise;
+    } catch {
+      // Retry on demand so queue can recover after startup Redis outage.
+      this.readyPromise = this.initializeConnections();
+      try {
+        await this.readyPromise;
+      } catch {
+        throw new Error(
+          `Queue is not ready. Redis may be unavailable. ${this.lastReadyError || ''}`.trim()
+        );
+      }
+    }
+  }
+
+  /**
+   * Queue health status for diagnostics and health endpoints.
+   */
+  getHealthStatus(): {
+    ready: boolean;
+    lastError: string | null;
+  } {
+    return {
+      ready: this.ready,
+      lastError: this.lastReadyError,
+    };
   }
 
   /**
@@ -269,6 +327,7 @@ export class QueueService {
    * Get dead letter queue jobs
    */
   async getDeadLetterJobs(): Promise<Job<QueueJobData>[]> {
+    await this.waitUntilReady();
     return await this.deadLetterQueue.getJobs(['failed']);
   }
 
@@ -277,6 +336,7 @@ export class QueueService {
    */
   async retryDeadLetterJob(jobId: string): Promise<boolean> {
     try {
+      await this.waitUntilReady();
       const job = await this.deadLetterQueue.getJob(jobId);
       if (!job) {
         return false;
@@ -312,6 +372,8 @@ export class QueueService {
       chunkOverlap?: number;
     } = {}
   ): Promise<PipelineJob> {
+    await this.waitUntilReady();
+
     const jobId = `job-${fileId}-${Date.now()}`;
 
     const jobData: PipelineJob = {
@@ -406,6 +468,8 @@ export class QueueService {
     failed: number;
     delayed: number;
   }> {
+    await this.waitUntilReady();
+
     const [waiting, active, completed, failed, delayed] = await Promise.all([
       this.queue.getWaitingCount(),
       this.queue.getActiveCount(),
@@ -434,7 +498,12 @@ export class QueueService {
    * Close the queue
    */
   async close(): Promise<void> {
-    await this.queue.close();
+    await Promise.all([
+      this.worker.close(),
+      this.queueEvents.close(),
+      this.deadLetterQueue.close(),
+      this.queue.close(),
+    ]);
   }
 }
 

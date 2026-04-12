@@ -134,6 +134,20 @@ export class PipelineService {
   }
 
   /**
+   * Ensure queue dependencies are ready before queue-backed operations.
+   */
+  async ensureQueueReady(): Promise<void> {
+    await this.queueService.waitUntilReady();
+  }
+
+  /**
+   * Queue health status used by diagnostics endpoints.
+   */
+  getQueueHealth() {
+    return this.queueService.getHealthStatus();
+  }
+
+  /**
    * Clean up old jobs
    */
   async cleanOldJobs(olderThanMs?: number) {
