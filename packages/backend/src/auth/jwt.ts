@@ -43,10 +43,19 @@ export interface DecodedRefreshToken extends RefreshTokenPayload {
  */
 function getPrivateKey(): string {
   if (!_privateKey) {
-    if (!fs.existsSync(PRIVATE_KEY_PATH)) {
-      throw new Error('Private key not found. Run: pnpm generate-keys');
+    // First check environment variable
+    const envPrivateKey = process.env.JWT_PRIVATE_KEY;
+    if (envPrivateKey && envPrivateKey.trim() !== '') {
+      _privateKey = envPrivateKey;
+    } else {
+      // Fall back to disk
+      if (!fs.existsSync(PRIVATE_KEY_PATH)) {
+        throw new Error(
+          'Private key not found. Run: pnpm generate-keys or set JWT_PRIVATE_KEY environment variable'
+        );
+      }
+      _privateKey = fs.readFileSync(PRIVATE_KEY_PATH, 'utf8');
     }
-    _privateKey = fs.readFileSync(PRIVATE_KEY_PATH, 'utf8');
   }
   return _privateKey;
 }
@@ -56,10 +65,19 @@ function getPrivateKey(): string {
  */
 function getPublicKey(): string {
   if (!_publicKey) {
-    if (!fs.existsSync(PUBLIC_KEY_PATH)) {
-      throw new Error('Public key not found. Run: pnpm generate-keys');
+    // First check environment variable
+    const envPublicKey = process.env.JWT_PUBLIC_KEY;
+    if (envPublicKey && envPublicKey.trim() !== '') {
+      _publicKey = envPublicKey;
+    } else {
+      // Fall back to disk
+      if (!fs.existsSync(PUBLIC_KEY_PATH)) {
+        throw new Error(
+          'Public key not found. Run: pnpm generate-keys or set JWT_PUBLIC_KEY environment variable'
+        );
+      }
+      _publicKey = fs.readFileSync(PUBLIC_KEY_PATH, 'utf8');
     }
-    _publicKey = fs.readFileSync(PUBLIC_KEY_PATH, 'utf8');
   }
   return _publicKey;
 }
