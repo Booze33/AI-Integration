@@ -1,7 +1,8 @@
 import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import { Pool } from 'pg';
-import { TenantDatabase } from '../database/tenant-context';
+import { randomUUID } from 'crypto';
+import { TenantDatabase, TenantOperations } from '../database/tenant-context';
 import { generateTokenPair, verifyToken, TokenPayload, DecodedRefreshToken } from './jwt';
 import { authenticate, AuthenticatedRequest } from './middleware';
 import {
@@ -39,7 +40,7 @@ interface DbUser {
   updated_at: Date;
 }
 
-function resolveTenantId(req: Request): string {
+function resolveRequestedTenantId(req: Request): string | null {
   const tenantIdCandidate =
     typeof req.body?.tenantId === 'string'
       ? req.body.tenantId
@@ -47,33 +48,70 @@ function resolveTenantId(req: Request): string {
         ? req.body.tenant_id
         : typeof req.headers['x-tenant-id'] === 'string'
           ? req.headers['x-tenant-id']
-          : DEFAULT_TENANT_ID;
+          : null;
+
+  if (!tenantIdCandidate) {
+    return null;
+  }
 
   const sanitizedTenantId = InputSanitizer.sanitizeText(tenantIdCandidate, {
     maxLength: 100,
   });
 
-  return sanitizedTenantId || DEFAULT_TENANT_ID;
+  return sanitizedTenantId || null;
 }
 
-async function findUserByEmail(tenantId: string, email: string): Promise<DbUser | null> {
-  return getTenantDb().withTenant(tenantId, async (client) => {
+async function findUserByEmail(email: string, tenantId?: string | null): Promise<DbUser | null> {
+  if (tenantId) {
+    return getTenantDb().withTenant(tenantId, async (client) => {
+      const result = await client.query<DbUser>(
+        'SELECT id, tenant_id, email, password_hash, created_at, updated_at FROM auth.users WHERE email = $1 AND deleted_at IS NULL',
+        [email]
+      );
+      return result.rows[0] || null;
+    });
+  }
+
+  const client = await getTenantDb().getRawConnection();
+  try {
     const result = await client.query<DbUser>(
-      'SELECT id, tenant_id, email, password_hash, created_at, updated_at FROM auth.users WHERE email = $1 AND deleted_at IS NULL',
+      `SELECT id, tenant_id, email, password_hash, created_at, updated_at
+       FROM auth.users
+       WHERE email = $1 AND deleted_at IS NULL
+       ORDER BY created_at ASC
+       LIMIT 1`,
       [email]
     );
     return result.rows[0] || null;
-  });
+  } finally {
+    client.release();
+  }
 }
 
-async function findUserById(tenantId: string, userId: string): Promise<DbUser | null> {
-  return getTenantDb().withTenant(tenantId, async (client) => {
+async function findUserById(userId: string, tenantId?: string | null): Promise<DbUser | null> {
+  if (tenantId) {
+    return getTenantDb().withTenant(tenantId, async (client) => {
+      const result = await client.query<DbUser>(
+        'SELECT id, tenant_id, email, password_hash, created_at, updated_at FROM auth.users WHERE id = $1 AND deleted_at IS NULL',
+        [userId]
+      );
+      return result.rows[0] || null;
+    });
+  }
+
+  const client = await getTenantDb().getRawConnection();
+  try {
     const result = await client.query<DbUser>(
-      'SELECT id, tenant_id, email, password_hash, created_at, updated_at FROM auth.users WHERE id = $1 AND deleted_at IS NULL',
+      `SELECT id, tenant_id, email, password_hash, created_at, updated_at
+       FROM auth.users
+       WHERE id = $1 AND deleted_at IS NULL
+       LIMIT 1`,
       [userId]
     );
     return result.rows[0] || null;
-  });
+  } finally {
+    client.release();
+  }
 }
 
 async function getUserRole(tenantId: string, userId: string): Promise<string | null> {
@@ -121,22 +159,67 @@ async function assignRoleToUser(tenantId: string, userId: string, role: string):
   });
 }
 
+function buildTenantName(email: string): string {
+  const localPart = email.split('@')[0] || 'workspace';
+  const normalized = localPart.replace(/[._-]+/g, ' ').trim();
+  const label = normalized.length > 0 ? normalized : 'workspace';
+  return `${label.charAt(0).toUpperCase()}${label.slice(1)} Workspace`;
+}
+
+function buildTenantSlug(email: string): string {
+  const localPart = email.split('@')[0] || 'workspace';
+  const baseSlug = localPart
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 32);
+  const suffix = randomUUID().slice(0, 8);
+
+  return `${baseSlug || 'workspace'}-${suffix}`;
+}
+
+async function ensureRegistrationTenant(email: string, tenantId?: string | null): Promise<string> {
+  if (tenantId) {
+    return tenantId;
+  }
+
+  const tenantOps = new TenantOperations(getTenantDb());
+  const tenant = await tenantOps.createTenant({
+    name: buildTenantName(email),
+    slug: buildTenantSlug(email),
+    plan: 'free',
+  });
+
+  return tenant.id;
+}
+
+function isValidEmailAddress(value: unknown): value is string {
+  return typeof value === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
 /**
  * POST /auth/register
  * Register a new user
  */
 router.post('/register', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { email: rawEmail, password, role = 'user' } = req.body;
+    const { email: rawEmail, password, role = 'member' } = req.body;
     const email = InputSanitizer.sanitizeEmail(rawEmail);
     const sanitizedPassword = InputSanitizer.sanitizeText(password, { maxLength: 100 });
     const sanitizedRole = InputSanitizer.sanitizeText(role, { maxLength: 50 });
-    const tenantId = resolveTenantId(req);
 
     if (!email || !sanitizedPassword) {
       res.status(400).json({
         error: 'Bad Request',
         message: 'Email and password are required',
+      });
+      return;
+    }
+
+    if (!isValidEmailAddress(rawEmail)) {
+      res.status(400).json({
+        error: 'Bad Request',
+        message: 'A valid email address is required',
       });
       return;
     }
@@ -148,6 +231,18 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
       });
       return;
     }
+
+    const requestedTenantId = resolveRequestedTenantId(req);
+    const existingUser = await findUserByEmail(email, requestedTenantId);
+    if (existingUser) {
+      res.status(409).json({
+        error: 'Conflict',
+        message: 'User with this email already exists',
+      });
+      return;
+    }
+
+    const tenantId = await ensureRegistrationTenant(email, requestedTenantId);
 
     const salt = await bcrypt.genSalt(12);
     const passwordHash = await bcrypt.hash(sanitizedPassword, salt);
@@ -178,25 +273,13 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
     const { accessToken, refreshToken, tokenId } = generateTokenPair(payload);
     await storeRefreshToken(user.id, tokenId, 7 * 24 * 60 * 60);
 
-    const cookieOptions = {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax' as const,
-      path: '/',
-    };
-
-    res.cookie('accessToken', accessToken, { ...cookieOptions, maxAge: 15 * 60 * 1000 });
-    res.cookie('refreshToken', refreshToken, {
-      ...cookieOptions,
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-    });
-
     res.status(201).json({
       message: 'User registered successfully',
       user: {
         id: user.id,
         email: user.email,
         role: sanitizedRole,
+        tenantId,
       },
       accessToken,
       refreshToken,
@@ -219,7 +302,7 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
     const { email: rawEmail, password: rawPassword } = req.body;
     const email = InputSanitizer.sanitizeEmail(rawEmail);
     const password = InputSanitizer.sanitizeText(rawPassword, { maxLength: 100 });
-    const tenantId = resolveTenantId(req);
+    const requestedTenantId = resolveRequestedTenantId(req);
 
     if (!email || !password) {
       res.status(400).json({
@@ -229,7 +312,7 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    const user = await findUserByEmail(tenantId, email);
+    const user = await findUserByEmail(email, requestedTenantId);
     if (!user || !user.password_hash) {
       res.status(401).json({
         error: 'Unauthorized',
@@ -238,6 +321,7 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
+    const tenantId = user.tenant_id || requestedTenantId || DEFAULT_TENANT_ID;
     const isValidPassword = await bcrypt.compare(password, user.password_hash);
     if (!isValidPassword) {
       res.status(401).json({
@@ -247,7 +331,7 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    const persistedRole = (await getUserRole(tenantId, user.id)) || 'user';
+    const persistedRole = (await getUserRole(tenantId, user.id)) || 'member';
     const payload: TokenPayload = {
       userId: user.id,
       email: user.email,
@@ -264,6 +348,7 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
         id: user.id,
         email: user.email,
         role: persistedRole,
+        tenantId,
       },
       accessToken,
       refreshToken,
@@ -283,27 +368,31 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
  */
 router.post('/refresh', async (req: Request, res: Response): Promise<void> => {
   try {
+    const refreshTokenCandidate =
+      typeof req.body?.refreshToken === 'string' ? req.body.refreshToken : null;
     const cookieHeader = req.headers.cookie;
-    if (!cookieHeader) {
-      res.status(401).json({
-        error: 'Unauthorized',
-        message: 'Refresh token cookie is required',
+    if (!cookieHeader && !refreshTokenCandidate) {
+      res.status(400).json({
+        error: 'Bad Request',
+        message: 'Refresh token is required',
       });
       return;
     }
 
-    const cookies = Object.fromEntries(
-      cookieHeader.split(';').map((c) => {
-        const [k, ...v] = c.trim().split('=');
-        return [decodeURIComponent(k), decodeURIComponent(v.join('='))];
-      })
-    ) as Record<string, string>;
+    const cookies = cookieHeader
+      ? (Object.fromEntries(
+          cookieHeader.split(';').map((c) => {
+            const [k, ...v] = c.trim().split('=');
+            return [decodeURIComponent(k), decodeURIComponent(v.join('='))];
+          })
+        ) as Record<string, string>)
+      : {};
 
-    const refreshToken = cookies.refreshToken;
+    const refreshToken = refreshTokenCandidate || cookies.refreshToken;
     if (!refreshToken) {
-      res.status(401).json({
-        error: 'Unauthorized',
-        message: 'Refresh token cookie is required',
+      res.status(400).json({
+        error: 'Bad Request',
+        message: 'Refresh token is required',
       });
       return;
     }
@@ -344,22 +433,16 @@ router.post('/refresh', async (req: Request, res: Response): Promise<void> => {
     await revokeRefreshToken(decoded.tokenId);
     await storeRefreshToken(decoded.userId, newTokenId, 7 * 24 * 60 * 60);
 
-    const cookieOptions = {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax' as const,
-      path: '/',
-    };
-
-    res.cookie('accessToken', accessToken, { ...cookieOptions, maxAge: 15 * 60 * 1000 });
-    res.cookie('refreshToken', newRefreshToken, {
-      ...cookieOptions,
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-    });
-
     res.json({
       message: 'Tokens refreshed successfully',
-      user: { userId: payload.userId, email: payload.email, role: payload.role },
+      user: {
+        id: payload.userId,
+        email: payload.email,
+        role: payload.role,
+        tenantId: payload.tenantId,
+      },
+      accessToken,
+      refreshToken: newRefreshToken,
     });
   } catch (error) {
     console.error('Token refresh error:', error);
@@ -387,9 +470,7 @@ router.get(
     }
 
     const tenantId = req.user.tenantId || DEFAULT_TENANT_ID;
-    const user = await findUserById(tenantId, req.user.userId);
-
-    console.log('=========================Authenticated user info:', user);
+    const user = await findUserById(req.user.userId, tenantId);
 
     if (!user) {
       res.status(404).json({
@@ -399,13 +480,14 @@ router.get(
       return;
     }
 
-    const role = req.user.role || (await getUserRole(tenantId, user.id)) || 'user';
+    const role = req.user.role || (await getUserRole(tenantId, user.id)) || 'member';
 
     res.json({
       user: {
         id: user.id,
         email: user.email,
         role,
+        tenantId,
         createdAt: user.created_at,
       },
     });
@@ -419,9 +501,10 @@ router.get(
 router.post('/logout', async (req: Request, res: Response): Promise<void> => {
   try {
     const cookieHeader = req.headers.cookie;
-    let refreshToken: string | undefined;
+    let refreshToken: string | undefined =
+      typeof req.body?.refreshToken === 'string' ? req.body.refreshToken : undefined;
 
-    if (cookieHeader) {
+    if (!refreshToken && cookieHeader) {
       const cookies = Object.fromEntries(
         cookieHeader.split(';').map((c) => {
           const [k, ...v] = c.trim().split('=');
@@ -440,36 +523,11 @@ router.post('/logout', async (req: Request, res: Response): Promise<void> => {
       }
     }
 
-    const cookieOptions = {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax' as const,
-      path: '/',
-      maxAge: 0,
-    };
-
-    res.cookie('accessToken', '', cookieOptions);
-    res.cookie('refreshToken', '', cookieOptions);
-
     res.json({
       message: 'Logged out successfully',
     });
   } catch (error) {
     console.error('Logout error:', error);
-    res.cookie('accessToken', '', {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      path: '/',
-      maxAge: 0,
-    });
-    res.cookie('refreshToken', '', {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      path: '/',
-      maxAge: 0,
-    });
     res.json({
       message: 'Logged out successfully',
     });

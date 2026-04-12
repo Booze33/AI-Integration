@@ -3,11 +3,11 @@ import { NextRequest, NextResponse } from 'next/server';
 export async function GET(request: NextRequest) {
   try {
     const backendUrl = process.env.BACKEND_URL || 'http://localhost:3001';
-    const accessToken = request.cookies.get('accessToken')?.value;
+    const cookieHeader = request.headers.get('cookie') || '';
 
-    if (!accessToken) {
+    if (!cookieHeader) {
       return NextResponse.json(
-        { error: 'Unauthorized', message: 'No access token' },
+        { error: 'Unauthorized', message: 'No auth cookies' },
         { status: 401 }
       );
     }
@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
     const response = await fetch(`${backendUrl}/auth/me`, {
       method: 'GET',
       headers: {
-        Authorization: `Bearer ${accessToken}`,
+        Cookie: cookieHeader,
       },
     });
 

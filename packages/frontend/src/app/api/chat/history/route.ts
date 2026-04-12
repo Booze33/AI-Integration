@@ -4,11 +4,12 @@ const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:3001';
 
 export async function GET(_request: NextRequest) {
   try {
+    const cookieHeader = _request.headers.get('cookie') || '';
     const response = await fetch(`${BACKEND_URL}/api/chat/history`, {
       method: 'GET',
-      credentials: 'include',
       headers: {
         'Content-Type': 'application/json',
+        Cookie: cookieHeader,
       },
     });
     const data = await response.json();
@@ -25,11 +26,12 @@ export async function GET(_request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
+    const cookieHeader = request.headers.get('cookie') || '';
     const response = await fetch(`${BACKEND_URL}/api/chat/history`, {
       method: 'POST',
-      credentials: 'include',
       headers: {
         'Content-Type': 'application/json',
+        Cookie: cookieHeader,
       },
       body: JSON.stringify(body),
     });

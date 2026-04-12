@@ -195,10 +195,14 @@ async function buildApp() {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Register + login; returns { accessToken, refreshToken }. */
+/** Register + login; returns auth payload. */
 async function registerUser(app: express.Application, email: string, password = 'Test1234!') {
   const res = await request(app).post('/auth/register').send({ email, password });
-  return res.body as { accessToken: string; refreshToken: string };
+  return res.body as {
+    accessToken: string;
+    refreshToken: string;
+    user: { tenantId?: string };
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -249,7 +253,7 @@ describe('Integration Tests', () => {
   // =========================================================================
 
   describe('POST /auth/register', () => {
-    it('happy path — registers user and returns tokens', async () => {
+    it('happy path — registers user and returns tokens in the response body', async () => {
       const res = await request(app)
         .post('/auth/register')
         .send({ email: 'reg-happy@test.com', password: 'Str0ngPass!' })
@@ -257,7 +261,9 @@ describe('Integration Tests', () => {
 
       expect(res.body.accessToken).toBeDefined();
       expect(res.body.refreshToken).toBeDefined();
+      expect(res.headers['set-cookie']).toBeUndefined();
       expect(res.body.user.email).toBe('reg-happy@test.com');
+      expect(res.body.user.tenantId).toBeDefined();
     });
 
     it('returns 400 when email is missing', async () => {

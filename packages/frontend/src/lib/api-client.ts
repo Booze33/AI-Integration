@@ -34,20 +34,16 @@ export interface RegisterRequest {
 export interface LoginResponse {
   message: string;
   user: User;
-  accessToken: string;
-  refreshToken: string;
 }
 
 export interface RegisterResponse {
   message: string;
   user: User;
-  accessToken: string;
-  refreshToken: string;
 }
 
 export interface RefreshResponse {
-  accessToken: string;
-  refreshToken: string;
+  message: string;
+  user: User;
 }
 
 export interface MeResponse {
@@ -61,7 +57,20 @@ export interface ChatMessage {
 }
 
 export interface ChatHistoryResponse {
+  sessions: ChatHistorySession[];
+}
+
+export interface ChatHistorySession {
+  sessionId: string;
+  streamId: string | null;
+  userId: string;
+  userEmail: string;
+  role: string;
+  title: string;
   messages: ChatMessage[];
+  messageCount: number;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface TranscriptionResponse {
@@ -266,8 +275,6 @@ export class ApiClient {
           email: credentials.email,
           role: 'admin',
         },
-        accessToken: 'mock-access-token',
-        refreshToken: 'mock-refresh-token',
       };
       return mockResponse;
     }
@@ -314,7 +321,7 @@ export class ApiClient {
   }
 
   async startTranscriptionSession(): Promise<{ sessionId: string }> {
-    const response = await this.request<{ sessionId: string }>('GET', '/api/chat/transcribe');
+    const response = await this.request<{ sessionId: string }>('POST', '/api/chat/transcribe');
     return response;
   }
 

@@ -1,5 +1,39 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ sessionId: string }> }
+) {
+  try {
+    const backendUrl = process.env.BACKEND_URL || 'http://localhost:3001';
+    const { sessionId } = await params;
+
+    const response = await fetch(`${backendUrl}/api/chat/transcribe/${sessionId}`, {
+      method: 'GET',
+      headers: {
+        Cookie: request.headers.get('cookie') || '',
+      },
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      return NextResponse.json(errorData, { status: response.status });
+    }
+
+    return new Response(response.body, {
+      status: response.status,
+      headers: {
+        'Content-Type': response.headers.get('content-type') || 'text/event-stream',
+        'Cache-Control': response.headers.get('cache-control') || 'no-cache, no-transform',
+        Connection: 'keep-alive',
+      },
+    });
+  } catch (error) {
+    console.error('Transcription stream error:', error);
+    return NextResponse.json({ error: 'Failed to open transcription stream' }, { status: 500 });
+  }
+}
+
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ sessionId: string }> }

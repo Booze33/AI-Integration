@@ -105,10 +105,11 @@ export async function authenticate(
   next: NextFunction
 ): Promise<void> {
   const authHeader = req.headers.authorization;
+  const cookies = parseCookies(req.headers.cookie);
+  const token =
+    authHeader && authHeader.startsWith('Bearer ') ? authHeader.split(' ')[1] : cookies.accessToken;
 
-  if (authHeader && authHeader.startsWith('Bearer ')) {
-    const token = authHeader.split(' ')[1];
-
+  if (token) {
     try {
       const decoded = verifyToken(token);
       req.user = decoded;
@@ -150,19 +151,13 @@ export async function authenticate(
  */
 export function optionalAuth(req: AuthenticatedRequest, _res: Response, next: NextFunction): void {
   const authHeader = req.headers.authorization;
+  const cookies = parseCookies(req.headers.cookie);
+  const token = authHeader?.startsWith('Bearer ') ? authHeader.split(' ')[1] : cookies.accessToken;
 
-  if (!authHeader) {
+  if (!token) {
     next();
     return;
   }
-
-  const parts = authHeader.split(' ');
-  if (parts.length !== 2 || parts[0] !== 'Bearer') {
-    next();
-    return;
-  }
-
-  const token = parts[1];
 
   try {
     const decoded = verifyToken(token);

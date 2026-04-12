@@ -55,9 +55,9 @@ async function insertChatHistory(
   );
 }
 
-async function getChatHistory(pool: Pool, userId: string): Promise<any[]> {
+async function getChatHistory(pool: Pool, userId: string): Promise<ChatHistoryRow[]> {
   await ensureChatHistoryTable(pool);
-  const result = await pool.query(
+  const result = await pool.query<ChatHistoryRow>(
     `SELECT id, user_id, user_email, role, stream_id, messages, created_at FROM app.chat_history WHERE user_id = $1 ORDER BY created_at DESC`,
     [userId]
   );
@@ -128,7 +128,129 @@ interface ChatRequestBody {
 }
 
 type RealtimeSession = Awaited<ReturnType<NonNullable<AIProvider['createRealtimeSession']>>>;
-const transcriptionSessions = new Map<string, RealtimeSession>();
+
+interface ChatHistoryRow {
+  id: string;
+  user_id: string;
+  user_email: string;
+  role: string;
+  stream_id: string | null;
+  messages: ChatMessage[];
+  created_at: string;
+}
+
+interface ChatHistorySession {
+  sessionId: string;
+  streamId: string | null;
+  userId: string;
+  userEmail: string;
+  role: string;
+  title: string;
+  messages: ChatMessage[];
+  messageCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface BufferedTranscriptionEvent {
+  event: string;
+  data: string;
+  id?: string;
+}
+
+interface TranscriptionSessionContext {
+  sessionId: string;
+  ownerUserId: string;
+  session: RealtimeSession;
+  clients: Set<Response>;
+  bufferedEvents: BufferedTranscriptionEvent[];
+  closed: boolean;
+}
+
+const transcriptionSessions = new Map<string, TranscriptionSessionContext>();
+
+function buildChatHistoryTitle(messages: ChatMessage[]): string {
+  const firstUserMessage = messages.find((message) => message.role === 'user')?.content?.trim();
+  if (!firstUserMessage) {
+    return 'Untitled conversation';
+  }
+
+  return firstUserMessage.length > 80
+    ? `${firstUserMessage.slice(0, 77).trimEnd()}...`
+    : firstUserMessage;
+}
+
+function groupChatHistorySessions(rows: ChatHistoryRow[]): ChatHistorySession[] {
+  const sessions = new Map<string, ChatHistorySession>();
+
+  for (const row of rows) {
+    const sessionId = row.stream_id || row.id;
+    const existing = sessions.get(sessionId);
+
+    if (!existing) {
+      sessions.set(sessionId, {
+        sessionId,
+        streamId: row.stream_id,
+        userId: row.user_id,
+        userEmail: row.user_email,
+        role: row.role,
+        title: buildChatHistoryTitle(row.messages),
+        messages: row.messages,
+        messageCount: row.messages.length,
+        createdAt: row.created_at,
+        updatedAt: row.created_at,
+      });
+      continue;
+    }
+
+    const isNewer = new Date(row.created_at).getTime() >= new Date(existing.updatedAt).getTime();
+    if (isNewer) {
+      existing.messages = row.messages;
+      existing.messageCount = row.messages.length;
+      existing.updatedAt = row.created_at;
+      existing.title = buildChatHistoryTitle(row.messages);
+    }
+
+    if (new Date(row.created_at).getTime() < new Date(existing.createdAt).getTime()) {
+      existing.createdAt = row.created_at;
+    }
+  }
+
+  return [...sessions.values()].sort(
+    (left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime()
+  );
+}
+
+function bufferTranscriptionEvent(
+  context: TranscriptionSessionContext,
+  event: string,
+  data: string,
+  id?: string
+): void {
+  const payload = { event, data, id };
+  context.bufferedEvents.push(payload);
+
+  if (context.bufferedEvents.length > 100) {
+    context.bufferedEvents.shift();
+  }
+
+  for (const client of context.clients) {
+    if (!client.writableEnded) {
+      client.write(formatSSE(event, data, id));
+    }
+  }
+}
+
+function closeTranscriptionSession(sessionId: string): void {
+  const context = transcriptionSessions.get(sessionId);
+  if (!context || context.closed) {
+    return;
+  }
+
+  context.closed = true;
+  context.session.close();
+  transcriptionSessions.delete(sessionId);
+}
 
 /**
  * Create chat routes with database pool
@@ -201,14 +323,8 @@ export function createChatRoutes(pool: Pool): ExpressRouter {
     }
   );
 
-  /**
-   * GET /api/chat/transcribe
-   *
-   * Start a real-time transcription session using Server-Sent Events
-   * Returns transcription results as they become available
-   */
-  router.get(
-    '/chat/transcribe',
+  router.post(
+    '/chat/transcribe/session',
     authenticate as any,
     requireViewer as any,
     async (req: AuthenticatedRequest, res: Response) => {
@@ -218,7 +334,6 @@ export function createChatRoutes(pool: Pool): ExpressRouter {
           return;
         }
 
-        // Get Deepgram provider
         const provider = getProvider();
         if (!provider.createRealtimeSession) {
           res.status(501).json({
@@ -228,105 +343,118 @@ export function createChatRoutes(pool: Pool): ExpressRouter {
           return;
         }
 
-        // Set SSE headers
-        res.writeHead(200, {
-          'Content-Type': 'text/event-stream',
-          'Cache-Control': 'no-cache, no-transform',
-          Connection: 'keep-alive',
-          'X-Accel-Buffering': 'no',
-          'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Headers': 'Cache-Control',
-        });
-
-        // Disable Nagle's algorithm
-        if (req.socket) {
-          req.socket.setNoDelay(true);
-          req.socket.setKeepAlive(true);
-        }
-
-        // Track client disconnect
-        let aborted = false;
         const sessionId = randomUUID();
+        const context: TranscriptionSessionContext = {
+          sessionId,
+          ownerUserId: req.user.userId,
+          session: undefined as unknown as RealtimeSession,
+          clients: new Set<Response>(),
+          bufferedEvents: [],
+          closed: false,
+        };
 
-        req.on('close', () => {
-          aborted = true;
-          clearInterval(heartbeatInterval);
-          // Clean up session on disconnect
-          const session = transcriptionSessions.get(sessionId);
-          if (session) {
-            session.close();
-            transcriptionSessions.delete(sessionId);
-          }
-        });
-
-        // Send heartbeat every 15 seconds
-        const heartbeatInterval = setInterval(() => {
-          if (!aborted && !res.writableEnded) {
-            res.write(':heartbeat\n\n');
-          }
-        }, 15000);
-
-        // Create Deepgram session
-        const session = await provider.createRealtimeSession({
+        context.session = await provider.createRealtimeSession({
           model: 'nova-2',
           language: 'en-US',
           punctuate: true,
           smart_format: true,
           onTranscription: (result) => {
-            if (!aborted && !res.writableEnded) {
-              const eventData = JSON.stringify({
+            bufferTranscriptionEvent(
+              context,
+              'transcription',
+              JSON.stringify({
                 transcript: result.transcript,
                 isFinal: result.isFinal,
                 confidence: result.confidence,
-              });
-              res.write(formatSSE('transcription', eventData));
-            }
+              })
+            );
           },
           onError: (error) => {
-            if (!aborted && !res.writableEnded) {
-              const eventData = JSON.stringify({
+            bufferTranscriptionEvent(
+              context,
+              'transcription-error',
+              JSON.stringify({
                 error: 'Transcription error',
                 message: error.message,
-              });
-              res.write(formatSSE('error', eventData));
-            }
+              })
+            );
           },
           onClose: () => {
-            if (!aborted && !res.writableEnded) {
-              res.write(formatSSE('close', JSON.stringify({})));
-              res.end();
+            bufferTranscriptionEvent(context, 'close', JSON.stringify({ sessionId }));
+            for (const client of context.clients) {
+              if (!client.writableEnded) {
+                client.end();
+              }
             }
-            clearInterval(heartbeatInterval);
-            // Clean up session
             transcriptionSessions.delete(sessionId);
           },
         });
 
-        // Store session for cleanup
-        transcriptionSessions.set(sessionId, session);
+        transcriptionSessions.set(sessionId, context);
+        bufferTranscriptionEvent(context, 'ready', JSON.stringify({ sessionId }));
 
-        // Send session started event
-        await sendSSE(res, 'started', JSON.stringify({ sessionId }));
+        res.status(201).json({ sessionId });
       } catch (error) {
-        console.error('Transcription start error:', error);
-        if (!res.headersSent) {
-          res.status(500).json({
-            error: 'Failed to start transcription session',
-            message: error instanceof Error ? error.message : 'Unknown error',
-          });
-        } else {
-          res.write(
-            formatSSE(
-              'error',
-              JSON.stringify({
-                error: 'Failed to start transcription session',
-                message: error instanceof Error ? error.message : 'Unknown error',
-              })
-            )
-          );
-          res.end();
-        }
+        console.error('Transcription session create error:', error);
+        res.status(500).json({
+          error: 'Failed to create transcription session',
+          message: error instanceof Error ? error.message : 'Unknown error',
+        });
       }
+    }
+  );
+
+  router.get(
+    '/chat/transcribe/:sessionId',
+    authenticate as any,
+    requireViewer as any,
+    async (req: AuthenticatedRequest, res: Response) => {
+      if (!req.user) {
+        res.status(401).json({ error: 'Unauthorized', message: 'Not authenticated' });
+        return;
+      }
+
+      const { sessionId } = req.params;
+      const context = transcriptionSessions.get(sessionId);
+
+      if (!context || context.ownerUserId !== req.user.userId) {
+        res.status(404).json({ error: 'Session not found' });
+        return;
+      }
+
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache, no-transform',
+        Connection: 'keep-alive',
+        'X-Accel-Buffering': 'no',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': 'Cache-Control',
+      });
+
+      if (req.socket) {
+        req.socket.setNoDelay(true);
+        req.socket.setKeepAlive(true);
+      }
+
+      context.clients.add(res);
+
+      for (const event of context.bufferedEvents) {
+        if (res.writableEnded) {
+          break;
+        }
+        res.write(formatSSE(event.event, event.data, event.id));
+      }
+
+      const heartbeatInterval = setInterval(() => {
+        if (!res.writableEnded) {
+          res.write(':heartbeat\n\n');
+        }
+      }, 15000);
+
+      req.on('close', () => {
+        clearInterval(heartbeatInterval);
+        context.clients.delete(res);
+      });
     }
   );
 
@@ -348,9 +476,9 @@ export function createChatRoutes(pool: Pool): ExpressRouter {
         }
 
         const { sessionId } = req.params;
-        const session = transcriptionSessions.get(sessionId);
+        const context = transcriptionSessions.get(sessionId);
 
-        if (!session) {
+        if (!context || context.ownerUserId !== req.user.userId) {
           res.status(404).json({ error: 'Session not found' });
           return;
         }
@@ -363,7 +491,7 @@ export function createChatRoutes(pool: Pool): ExpressRouter {
         }
 
         // Send audio data to Deepgram
-        session.send(audioData);
+        context.session.send(audioData);
 
         res.json({ success: true });
       } catch (error) {
@@ -393,11 +521,10 @@ export function createChatRoutes(pool: Pool): ExpressRouter {
         }
 
         const { sessionId } = req.params;
-        const session = transcriptionSessions.get(sessionId);
+        const context = transcriptionSessions.get(sessionId);
 
-        if (session) {
-          session.close();
-          transcriptionSessions.delete(sessionId);
+        if (context && context.ownerUserId === req.user.userId) {
+          closeTranscriptionSession(sessionId);
         }
 
         res.json({ success: true });
@@ -429,17 +556,9 @@ export function createChatRoutes(pool: Pool): ExpressRouter {
         const history = await getChatHistory(pool, req.user.userId);
 
         // Transform the data to match frontend expectations
-        const formattedHistory = history.map((item) => ({
-          id: item.id,
-          userId: item.user_id,
-          userEmail: item.user_email,
-          role: item.role,
-          streamId: item.stream_id,
-          messages: item.messages,
-          createdAt: item.created_at,
-        }));
-
-        res.json(formattedHistory);
+        res.json({
+          sessions: groupChatHistorySessions(history),
+        });
       } catch (error) {
         console.error('Failed to fetch chat history:', error);
         res.status(500).json({
@@ -598,6 +717,7 @@ async function startNewStream(
       'start',
       JSON.stringify({
         id: streamId,
+        streamId,
         model: options.model || 'default',
       }),
       streamId
@@ -730,6 +850,7 @@ async function resumeStream(req: Request, res: Response, streamState: StreamStat
       'start',
       JSON.stringify({
         id: streamState.id,
+        streamId: streamState.id,
         model: streamState.options?.model || 'default',
         resumed: true,
       }),
@@ -811,4 +932,9 @@ async function resumeStream(req: Request, res: Response, streamState: StreamStat
   }
 }
 
-export { createChatRoutes as chatRoutes };
+const fallbackTestPool = {
+  query: async () => ({ rows: [] }),
+} as unknown as Pool;
+
+// Backward-compatible router export used by older tests and call sites.
+export const chatRoutes = createChatRoutes(fallbackTestPool);

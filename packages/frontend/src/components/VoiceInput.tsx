@@ -2,7 +2,6 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { Mic, MicOff, Square, Loader2 } from 'lucide-react';
-// import { apiClient } from '../lib/api-client';
 
 interface VoiceInputProps {
   onTranscription: (text: string, isFinal: boolean) => void;
@@ -73,64 +72,80 @@ export default function VoiceInput({
   };
 
   const startTranscriptionSession = async () => {
-    try {
-      setIsConnecting(true);
+    setIsConnecting(true);
 
-      // Note: We don't have a transcription session method in api-client yet
-      // We'll keep this as a direct fetch for now
-      const response = await fetch('/api/chat/transcribe', {
-        method: 'GET',
-        headers: {
-          'Cache-Control': 'no-cache',
-        },
-      });
+    const response = await fetch('/api/chat/transcribe', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({}),
+    });
 
-      if (!response.ok) {
-        throw new Error('Failed to start transcription session');
-      }
+    if (!response.ok) {
+      throw new Error('Failed to start transcription session');
+    }
 
-      const eventSource = new EventSource('/api/chat/transcribe');
+    const data = (await response.json()) as { sessionId?: string };
+    if (!data.sessionId) {
+      throw new Error('Missing transcription session id');
+    }
+
+    sessionIdRef.current = data.sessionId;
+
+    await new Promise<void>((resolve, reject) => {
+      const eventSource = new EventSource(`/api/chat/transcribe/${data.sessionId}`);
       eventSourceRef.current = eventSource;
 
-      eventSource.onmessage = (event) => {
+      const handleReady = (event: Event) => {
+        const message = event as MessageEvent<string>;
         try {
-          const data = JSON.parse(event.data);
-
-          if (data.sessionId) {
-            sessionIdRef.current = data.sessionId;
-            setIsConnecting(false);
-            return;
+          const payload = JSON.parse(message.data) as { sessionId?: string };
+          if (payload.sessionId) {
+            sessionIdRef.current = payload.sessionId;
           }
+        } catch {
+          // Ignore malformed ready payloads and rely on the created session id.
+        }
+        setIsConnecting(false);
+        resolve();
+      };
 
-          if (data.transcript) {
-            const transcription: TranscriptionEvent = {
-              transcript: data.transcript,
-              isFinal: data.isFinal,
-              confidence: data.confidence,
-            };
+      const handleTranscription = (event: Event) => {
+        try {
+          const message = event as MessageEvent<string>;
+          const data = JSON.parse(message.data) as TranscriptionEvent;
 
-            setCurrentTranscript(transcription.transcript);
-            onTranscription(transcription.transcript, transcription.isFinal);
-          }
-
-          if (data.error) {
-            onError?.(data.error);
-          }
+          setCurrentTranscript(data.transcript);
+          onTranscription(data.transcript, data.isFinal);
         } catch {
           console.error('Error parsing transcription event: Unable to parse event payload');
         }
       };
 
-      eventSource.onerror = (error) => {
-        console.error('EventSource error:', error);
-        onError?.('Transcription connection lost');
-        stopRecording();
+      const handleServerError = (event: Event) => {
+        try {
+          const message = event as MessageEvent<string>;
+          const data = JSON.parse(message.data) as { message?: string };
+          reject(new Error(data.message || 'Transcription session failed'));
+        } catch {
+          reject(new Error('Transcription session failed'));
+        }
       };
-    } catch {
-      console.error('Failed to start transcription session: Unknown error');
-      setIsConnecting(false);
-      onError?.('Failed to start transcription');
-    }
+
+      const handleClose = () => {
+        void stopRecording();
+      };
+
+      eventSource.addEventListener('ready', handleReady as EventListener);
+      eventSource.addEventListener('transcription', handleTranscription as EventListener);
+      eventSource.addEventListener('transcription-error', handleServerError as EventListener);
+      eventSource.addEventListener('close', handleClose as EventListener);
+
+      eventSource.onerror = () => {
+        reject(new Error('Transcription connection lost'));
+      };
+    });
   };
 
   const startRecording = async () => {
@@ -144,7 +159,6 @@ export default function VoiceInput({
         await requestMicrophonePermission();
       }
 
-      // Start transcription session
       await startTranscriptionSession();
 
       // Get microphone stream
@@ -175,8 +189,6 @@ export default function VoiceInput({
           const arrayBuffer = await event.data.arrayBuffer();
 
           try {
-            // Note: We don't have a send audio chunk method in api-client yet
-            // We'll keep this as a direct fetch for now
             await fetch(`/api/chat/transcribe/${sessionIdRef.current}`, {
               method: 'POST',
               body: arrayBuffer,
@@ -219,8 +231,6 @@ export default function VoiceInput({
     // Close transcription session
     if (sessionIdRef.current) {
       try {
-        // Note: We don't have a close session method in api-client yet
-        // We'll keep this as a direct fetch for now
         await fetch(`/api/chat/transcribe/${sessionIdRef.current}`, {
           method: 'DELETE',
         });

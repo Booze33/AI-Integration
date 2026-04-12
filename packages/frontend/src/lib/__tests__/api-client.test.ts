@@ -35,12 +35,10 @@ describe('ApiClient', () => {
   });
 
   describe('Authentication', () => {
-    it('should login successfully and store tokens', async () => {
+    it('should login successfully', async () => {
       const mockResponse = {
         message: 'Login successful',
         user: { id: '1', email: 'test@example.com', role: 'admin' },
-        accessToken: 'access-token',
-        refreshToken: 'refresh-token',
       };
 
       fetchMock.mockResolvedValueOnce({
@@ -80,67 +78,9 @@ describe('ApiClient', () => {
         })
       ).rejects.toThrow(ApiError);
     });
-
-    it('should refresh token when access token expires', async () => {
-      // Mock expired access token response
-      fetchMock.mockResolvedValueOnce({
-        ok: false,
-        status: 401,
-      });
-
-      // Mock successful refresh
-      fetchMock.mockResolvedValueOnce({
-        ok: true,
-        json: () =>
-          Promise.resolve({
-            accessToken: 'new-access-token',
-            refreshToken: 'new-refresh-token',
-          }),
-      });
-
-      // Mock successful retry
-      fetchMock.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ data: 'success' }),
-      });
-
-      // Set initial tokens
-      Object.defineProperty(window, 'localStorage', {
-        value: {
-          getItem: vi.fn((key) => {
-            if (key === 'accessToken') return 'expired-token';
-            if (key === 'refreshToken') return 'refresh-token';
-            return null;
-          }),
-          setItem: vi.fn(),
-          removeItem: vi.fn(),
-        },
-        writable: true,
-      });
-
-      const result = await client.getTenantConfigs();
-
-      expect(result).toEqual({ data: 'success' });
-      expect(fetchMock).toHaveBeenCalledTimes(3); // Original, refresh, retry
-    });
   });
 
   describe('Tenant Configuration', () => {
-    beforeEach(() => {
-      // Mock authenticated state
-      Object.defineProperty(window, 'localStorage', {
-        value: {
-          getItem: vi.fn((key) => {
-            if (key === 'accessToken') return 'valid-token';
-            return null;
-          }),
-          setItem: vi.fn(),
-          removeItem: vi.fn(),
-        },
-        writable: true,
-      });
-    });
-
     it('should get tenant configurations', async () => {
       const mockResponse = {
         success: true,
@@ -167,9 +107,7 @@ describe('ApiClient', () => {
         'http://test-api.com/api/tenant/config',
         expect.objectContaining({
           method: 'GET',
-          headers: expect.objectContaining({
-            Authorization: 'Bearer valid-token',
-          }),
+          credentials: 'include',
         })
       );
     });

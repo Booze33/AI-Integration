@@ -13,6 +13,7 @@ interface ChatMessage {
 
 interface SSEEventPayload {
   id?: string;
+  streamId?: string;
   content?: string;
   index?: number;
   finishReason?: string;
@@ -226,6 +227,7 @@ export default function ChatPage() {
       const decoder = new TextDecoder();
       let buffer = '';
       let assistantDraft = '';
+      let activeStreamId = streamId;
 
       while (true) {
         const { value, done } = await reader.read();
@@ -247,8 +249,10 @@ export default function ChatPage() {
           }
 
           if (eventType === 'start') {
-            if (parsed?.id) {
-              setStreamId(parsed.id);
+            const nextStreamId = parsed?.streamId || parsed?.id;
+            if (nextStreamId) {
+              activeStreamId = nextStreamId;
+              setStreamId(nextStreamId);
             }
             setIsReconnecting(false);
           }
@@ -269,7 +273,7 @@ export default function ChatPage() {
               ...messages.filter((m) => m.id !== 'assistant-draft'),
               { role: 'assistant' as const, content: assistantDraft },
             ] as ChatMessage[];
-            saveChatHistory(persistedMessages, streamId || undefined);
+            saveChatHistory(persistedMessages, activeStreamId || undefined);
             finalizeAssistant();
             setIsStreaming(false);
             setIsReconnecting(false);
