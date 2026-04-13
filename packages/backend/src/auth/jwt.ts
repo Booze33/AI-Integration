@@ -46,7 +46,8 @@ function getPrivateKey(): string {
     // First check environment variable
     const envPrivateKey = process.env.JWT_PRIVATE_KEY;
     if (envPrivateKey && envPrivateKey.trim() !== '') {
-      _privateKey = envPrivateKey;
+      // Normalize literal \n sequences produced by dotenv when the value is unquoted
+      _privateKey = envPrivateKey.replace(/\\n/g, '\n');
     } else {
       // Fall back to disk
       if (!fs.existsSync(PRIVATE_KEY_PATH)) {
@@ -68,7 +69,8 @@ function getPublicKey(): string {
     // First check environment variable
     const envPublicKey = process.env.JWT_PUBLIC_KEY;
     if (envPublicKey && envPublicKey.trim() !== '') {
-      _publicKey = envPublicKey;
+      // Normalize literal \n sequences produced by dotenv when the value is unquoted
+      _publicKey = envPublicKey.replace(/\\n/g, '\n');
     } else {
       // Fall back to disk
       if (!fs.existsSync(PUBLIC_KEY_PATH)) {

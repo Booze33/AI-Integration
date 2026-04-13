@@ -10,8 +10,11 @@ export async function GET(
     const backendUrl = appConfig.apiUrl;
     const { jobId } = await params;
 
-    const response = await apiFetch(`${backendUrl}/pipeline/jobs/${jobId}`, {
+    const response = await apiFetch(`${backendUrl}/api/pipeline/jobs/${jobId}`, {
       method: 'GET',
+      headers: {
+        Cookie: request.headers.get('cookie') || '',
+      },
     });
 
     const data = await response.json();

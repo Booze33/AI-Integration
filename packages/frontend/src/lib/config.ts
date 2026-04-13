@@ -1,9 +1,23 @@
+const isProduction = process.env.NODE_ENV === 'production';
+
+const devFallbacks: Record<'NEXT_PUBLIC_API_URL' | 'NEXT_PUBLIC_DEFAULT_TENANT_ID', string> = {
+  NEXT_PUBLIC_API_URL: 'http://localhost:3001',
+  NEXT_PUBLIC_DEFAULT_TENANT_ID: 'default-tenant',
+};
+
 const readRequired = (key: 'NEXT_PUBLIC_API_URL' | 'NEXT_PUBLIC_DEFAULT_TENANT_ID'): string => {
-  const value = process.env[key];
-  if (!value || !value.trim()) {
-    throw new Error(`Missing required environment variable: ${key}`);
+  const value = process.env[key]?.trim();
+  if (value) {
+    return value;
   }
-  return value.trim();
+
+  if (!isProduction) {
+    const fallback = devFallbacks[key];
+    console.warn(`[config] Missing ${key}; using development fallback: ${fallback}`);
+    return fallback;
+  }
+
+  throw new Error(`Missing required environment variable: ${key}`);
 };
 
 const readOptional = (key: string): string | undefined => {
@@ -16,5 +30,5 @@ export const appConfig = {
   defaultTenantId: readRequired('NEXT_PUBLIC_DEFAULT_TENANT_ID'),
   appName: readOptional('NEXT_PUBLIC_APP_NAME') || 'AI Integration',
   mockMode: readOptional('NEXT_PUBLIC_MOCK_MODE') === 'true',
-  isProduction: process.env.NODE_ENV === 'production',
+  isProduction,
 };

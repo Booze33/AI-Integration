@@ -317,55 +317,6 @@ export default function UploadPage() {
     };
   }, [isDetailDrawerOpen]);
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gray-50 py-8">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="bg-white rounded-lg shadow-lg p-6">
-            <div className="mb-8 space-y-3">
-              <div className="h-9 w-56 rounded-lg skeleton-shimmer"></div>
-              <div className="h-4 w-11/12 rounded skeleton-shimmer"></div>
-            </div>
-
-            <div className="mb-6 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
-              <div className="flex flex-wrap items-center gap-4">
-                <div className="h-4 w-24 rounded skeleton-shimmer"></div>
-                <div className="h-4 w-24 rounded skeleton-shimmer"></div>
-                <div className="h-4 w-24 rounded skeleton-shimmer"></div>
-                <div className="h-4 w-24 rounded skeleton-shimmer"></div>
-              </div>
-            </div>
-
-            <div className="mt-8">
-              <div className="h-7 w-40 rounded mb-4 skeleton-shimmer"></div>
-              <div className="space-y-4">
-                {Array.from({ length: 3 }).map((_, i) => (
-                  <div key={i} className="border rounded-lg p-4 bg-gray-50">
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center space-x-3">
-                        <div className="h-5 w-5 rounded-full skeleton-shimmer"></div>
-                        <div className="space-y-2">
-                          <div className="h-4 w-52 rounded skeleton-shimmer"></div>
-                          <div className="h-4 w-20 rounded-full skeleton-shimmer"></div>
-                        </div>
-                      </div>
-                      <div className="h-4 w-10 rounded skeleton-shimmer"></div>
-                    </div>
-                    <div className="h-2 w-full rounded-full skeleton-shimmer"></div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (!user) {
-    return null;
-  }
-
   const showZoneError = useCallback((message: string) => {
     setZoneError(message);
     if (zoneErrorTimeoutRef.current) {
@@ -680,6 +631,55 @@ export default function UploadPage() {
         return 'bg-gray-500';
     }
   };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 py-8">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="bg-white rounded-lg shadow-lg p-6">
+            <div className="mb-8 space-y-3">
+              <div className="h-9 w-56 rounded-lg skeleton-shimmer"></div>
+              <div className="h-4 w-11/12 rounded skeleton-shimmer"></div>
+            </div>
+
+            <div className="mb-6 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+              <div className="flex flex-wrap items-center gap-4">
+                <div className="h-4 w-24 rounded skeleton-shimmer"></div>
+                <div className="h-4 w-24 rounded skeleton-shimmer"></div>
+                <div className="h-4 w-24 rounded skeleton-shimmer"></div>
+                <div className="h-4 w-24 rounded skeleton-shimmer"></div>
+              </div>
+            </div>
+
+            <div className="mt-8">
+              <div className="h-7 w-40 rounded mb-4 skeleton-shimmer"></div>
+              <div className="space-y-4">
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <div key={i} className="border rounded-lg p-4 bg-gray-50">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center space-x-3">
+                        <div className="h-5 w-5 rounded-full skeleton-shimmer"></div>
+                        <div className="space-y-2">
+                          <div className="h-4 w-52 rounded skeleton-shimmer"></div>
+                          <div className="h-4 w-20 rounded-full skeleton-shimmer"></div>
+                        </div>
+                      </div>
+                      <div className="h-4 w-10 rounded skeleton-shimmer"></div>
+                    </div>
+                    <div className="h-2 w-full rounded-full skeleton-shimmer"></div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return null;
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 py-8">

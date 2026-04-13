@@ -302,12 +302,11 @@ describe('Rate-Limit Middleware', () => {
       limiters.forEach((fn) => expect(fn).toBeTypeOf('function'));
     });
 
-    it('all three limiters run for an authenticated + tenant request', async () => {
+    it('skips the IP limiter for an authenticated + tenant request', async () => {
       // Each scope resolves to "within limit"
       mockIncrement
         .mockResolvedValueOnce(makeResult(1, 100)) // user
-        .mockResolvedValueOnce(makeResult(1, 1000)) // tenant
-        .mockResolvedValueOnce(makeResult(1, 50)); // IP
+        .mockResolvedValueOnce(makeResult(1, 1000)); // tenant
 
       const app = express();
       app.use((req: any, _res, next) => {
@@ -319,7 +318,7 @@ describe('Rate-Limit Middleware', () => {
       app.get('/api/hello', (_req, res) => res.json({ ok: true }));
 
       await request(app).get('/api/hello').expect(200);
-      expect(mockIncrement).toHaveBeenCalledTimes(3);
+      expect(mockIncrement).toHaveBeenCalledTimes(2);
     });
 
     it('stops at the first exceeded scope and returns 429', async () => {

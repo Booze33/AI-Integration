@@ -10,9 +10,12 @@ export async function POST(request: NextRequest) {
     const formData = await request.formData();
 
     // Forward to backend
-    const response = await apiFetch(`${backendUrl}/pipeline/upload`, {
+    const response = await apiFetch(`${backendUrl}/api/pipeline/upload`, {
       method: 'POST',
       body: formData,
+      headers: {
+        Cookie: request.headers.get('cookie') || '',
+      },
     });
 
     const data = await response.json();

@@ -256,7 +256,6 @@ export class ApiClient {
     }
 
     const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
       ...options.headers,
     };
 
@@ -266,8 +265,28 @@ export class ApiClient {
       credentials: 'include', // Include cookies for authentication
     };
 
-    if (options.body && method !== 'GET') {
-      requestOptions.body = JSON.stringify(options.body);
+    if (options.body !== undefined && method !== 'GET') {
+      const body = options.body;
+      const isFormData = typeof FormData !== 'undefined' && body instanceof FormData;
+      const isBinaryBody =
+        typeof Blob !== 'undefined' && body instanceof Blob
+          ? true
+          : body instanceof ArrayBuffer ||
+            ArrayBuffer.isView(body) ||
+            (typeof URLSearchParams !== 'undefined' && body instanceof URLSearchParams) ||
+            typeof body === 'string';
+
+      if (isFormData) {
+        delete headers['Content-Type'];
+        requestOptions.body = body;
+      } else if (isBinaryBody) {
+        requestOptions.body = body as BodyInit;
+      } else {
+        if (!headers['Content-Type']) {
+          headers['Content-Type'] = 'application/json';
+        }
+        requestOptions.body = JSON.stringify(body);
+      }
     }
 
     let response: Response;
@@ -409,10 +428,7 @@ export class ApiClient {
 
     return this.request<TranscriptionResponse>('POST', '/api/chat/transcribe', {
       body: formData,
-      headers: {
-        ...headers,
-        'Content-Type': 'multipart/form-data',
-      },
+      headers,
     });
   }
 
@@ -426,9 +442,6 @@ export class ApiClient {
 
     return this.request<UploadResponse>('POST', '/api/pipeline/upload', {
       body: formData,
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
     });
   }
 
@@ -438,9 +451,6 @@ export class ApiClient {
 
     return this.request<UploadResponse>('POST', '/api/pipeline/upload/async', {
       body: formData,
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
     });
   }
 
