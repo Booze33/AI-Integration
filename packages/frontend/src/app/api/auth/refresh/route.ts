@@ -1,15 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { appConfig } from '@/lib/config';
+import { apiFetch } from '@/lib/api/client';
 
 const COOKIE_OPTIONS = {
   httpOnly: true,
-  secure: process.env.NODE_ENV === 'production',
+  secure: appConfig.isProduction,
   sameSite: 'lax' as const,
   path: '/',
 };
 
 export async function POST(request: NextRequest) {
   try {
-    const backendUrl = process.env.BACKEND_URL || 'http://localhost:3001';
+    const backendUrl = appConfig.apiUrl;
     const refreshToken = request.cookies.get('refreshToken')?.value;
 
     if (!refreshToken) {
@@ -19,7 +21,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const response = await fetch(`${backendUrl}/auth/refresh`, {
+    const response = await apiFetch(`${backendUrl}/auth/refresh`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

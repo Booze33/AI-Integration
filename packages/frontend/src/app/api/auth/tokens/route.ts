@@ -7,27 +7,23 @@ export async function GET(request: NextRequest) {
     const backendUrl = appConfig.apiUrl;
     const cookieHeader = request.headers.get('cookie') || '';
 
-    if (!cookieHeader) {
-      return NextResponse.json(
-        { error: 'Unauthorized', message: 'No auth cookies' },
-        { status: 401 }
-      );
-    }
-
-    const response = await apiFetch(`${backendUrl}/auth/me`, {
+    const response = await apiFetch(`${backendUrl}/auth/tokens`, {
       method: 'GET',
       headers: {
         Cookie: cookieHeader,
       },
     });
 
-    const data = await response.json();
+    const data = await response.json().catch(() => ({
+      error: 'Invalid response',
+      message: 'Failed to fetch active sessions',
+    }));
 
     return NextResponse.json(data, { status: response.status });
   } catch (error) {
-    console.error('Me API error:', error);
+    console.error('Auth tokens GET API error:', error);
     return NextResponse.json(
-      { error: 'Internal Server Error', message: 'Failed to get user' },
+      { error: 'Internal Server Error', message: 'Failed to get active sessions' },
       { status: 500 }
     );
   }

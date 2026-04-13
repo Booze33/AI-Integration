@@ -1,14 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { appConfig } from '@/lib/config';
+import { apiFetch } from '@/lib/api/client';
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ jobId: string }> }
 ) {
   try {
-    const backendUrl = process.env.BACKEND_URL || 'http://localhost:3001';
+    const backendUrl = appConfig.apiUrl;
     const { jobId } = await params;
 
-    const response = await fetch(`${backendUrl}/pipeline/jobs/${jobId}`, {
+    const response = await apiFetch(`${backendUrl}/pipeline/jobs/${jobId}`, {
       method: 'GET',
     });
 
@@ -18,7 +20,24 @@ export async function GET(
       return NextResponse.json(data, { status: response.status });
     }
 
-    return NextResponse.json(data);
+    const job = data?.job;
+    if (!job) {
+      return NextResponse.json({ error: 'Invalid job payload' }, { status: 502 });
+    }
+
+    return NextResponse.json({
+      jobId: job.id,
+      fileId: job.fileId,
+      status: job.status,
+      progress: job.progress,
+      chunks: job.chunks,
+      chunkPreviews: job.chunkPreviews || [],
+      chunkTexts: job.chunkTexts || [],
+      error: job.error,
+      createdAt: job.createdAt,
+      updatedAt: job.updatedAt,
+      completedAt: job.completedAt,
+    });
   } catch (error) {
     console.error('Pipeline job status error:', error);
     return NextResponse.json(

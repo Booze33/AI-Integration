@@ -2,6 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { Mic, MicOff, Square, Loader2 } from 'lucide-react';
+import { apiFetch } from '../lib/api/client';
 
 interface VoiceInputProps {
   onTranscription: (text: string, isFinal: boolean) => void;
@@ -74,7 +75,7 @@ export default function VoiceInput({
   const startTranscriptionSession = async () => {
     setIsConnecting(true);
 
-    const response = await fetch('/api/chat/transcribe', {
+    const response = await apiFetch('/api/chat/transcribe', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -189,7 +190,7 @@ export default function VoiceInput({
           const arrayBuffer = await event.data.arrayBuffer();
 
           try {
-            await fetch(`/api/chat/transcribe/${sessionIdRef.current}`, {
+            await apiFetch(`/api/chat/transcribe/${sessionIdRef.current}`, {
               method: 'POST',
               body: arrayBuffer,
             });
@@ -231,7 +232,7 @@ export default function VoiceInput({
     // Close transcription session
     if (sessionIdRef.current) {
       try {
-        await fetch(`/api/chat/transcribe/${sessionIdRef.current}`, {
+        await apiFetch(`/api/chat/transcribe/${sessionIdRef.current}`, {
           method: 'DELETE',
         });
       } catch (error) {

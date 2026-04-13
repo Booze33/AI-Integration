@@ -13,25 +13,26 @@ const COOKIE_OPTIONS = {
 export async function POST(request: NextRequest) {
   try {
     const backendUrl = appConfig.apiUrl;
-    const refreshToken = request.cookies.get('refreshToken')?.value;
+    const cookieHeader = request.headers.get('cookie') || '';
 
-    if (refreshToken) {
-      await apiFetch(`${backendUrl}/auth/logout`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refreshToken }),
-      });
-    }
+    const response = await apiFetch(`${backendUrl}/auth/logout-all`, {
+      method: 'POST',
+      headers: {
+        Cookie: cookieHeader,
+      },
+    });
 
-    const res = NextResponse.json({ message: 'Logged out' }, { status: 200 });
+    const data = await response.json().catch(() => ({ message: 'Logged out from all devices' }));
+
+    const res = NextResponse.json(data, { status: response.status });
     res.cookies.set('accessToken', '', COOKIE_OPTIONS);
     res.cookies.set('refreshToken', '', COOKIE_OPTIONS);
 
     return res;
   } catch (error) {
-    console.error('Logout API error:', error);
+    console.error('Logout all API error:', error);
     const res = NextResponse.json(
-      { error: 'Internal Server Error', message: 'Failed to logout' },
+      { error: 'Internal Server Error', message: 'Failed to logout from all devices' },
       { status: 500 }
     );
     res.cookies.set('accessToken', '', COOKIE_OPTIONS);

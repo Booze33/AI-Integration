@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { appConfig } from '@/lib/config';
+import { apiFetch } from '@/lib/api/client';
 
-const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:3001';
+const BACKEND_URL = appConfig.apiUrl;
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.text();
-    const response = await fetch(`${BACKEND_URL}/api/chat`, {
+    const response = await apiFetch(`${BACKEND_URL}/api/chat`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

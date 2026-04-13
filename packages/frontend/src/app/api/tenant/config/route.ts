@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { appConfig } from '@/lib/config';
+import { apiFetch } from '@/lib/api/client';
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001';
-const MOCK_MODE = process.env.NEXT_PUBLIC_MOCK_MODE === 'true';
+const BACKEND_URL = appConfig.apiUrl;
+const MOCK_MODE = appConfig.mockMode;
 
 // Helper function to get auth token from request cookies
 function getAuthToken(request: NextRequest): string | null {
@@ -41,7 +43,7 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    const response = await fetch(`${BACKEND_URL}/api/tenant/config`, {
+    const response = await apiFetch(`${BACKEND_URL}/api/tenant/config`, {
       headers: {
         Cookie: `token=${token}`,
         'Content-Type': 'application/json',
@@ -74,7 +76,7 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
 
-    const response = await fetch(`${BACKEND_URL}/api/tenant/config`, {
+    const response = await apiFetch(`${BACKEND_URL}/api/tenant/config`, {
       method: 'POST',
       headers: {
         Cookie: `token=${token}`,

@@ -178,6 +178,15 @@ router.get(
               ),
             }
           : undefined,
+        chunkPreviews: job.chunks
+          ? job.chunks.slice(0, 3).map((chunk: TextChunk) => ({
+              id: chunk.id,
+              index: chunk.index,
+              text: chunk.text,
+              tokenCount: chunk.tokenCount || 0,
+            }))
+          : [],
+        chunkTexts: job.chunks ? job.chunks.map((chunk: TextChunk) => chunk.text) : [],
         error: job.error,
         createdAt: job.createdAt,
         updatedAt: job.updatedAt,

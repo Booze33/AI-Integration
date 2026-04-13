@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { appConfig } from '@/lib/config';
+import { apiFetch } from '@/lib/api/client';
 
 const COOKIE_OPTIONS = {
   httpOnly: true,
-  secure: process.env.NODE_ENV === 'production',
+  secure: appConfig.isProduction,
   sameSite: 'lax' as const,
   path: '/',
 };
@@ -13,9 +15,9 @@ export async function POST(request: NextRequest) {
 
     // In development, backend is on localhost:3001
     // In production, adjust accordingly
-    const backendUrl = process.env.BACKEND_URL || 'http://localhost:3001';
+    const backendUrl = appConfig.apiUrl;
 
-    const response = await fetch(`${backendUrl}/auth/register`, {
+    const response = await apiFetch(`${backendUrl}/auth/register`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

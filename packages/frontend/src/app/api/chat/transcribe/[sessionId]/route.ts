@@ -1,14 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { appConfig } from '@/lib/config';
+import { apiFetch } from '@/lib/api/client';
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ sessionId: string }> }
 ) {
   try {
-    const backendUrl = process.env.BACKEND_URL || 'http://localhost:3001';
+    const backendUrl = appConfig.apiUrl;
     const { sessionId } = await params;
 
-    const response = await fetch(`${backendUrl}/api/chat/transcribe/${sessionId}`, {
+    const response = await apiFetch(`${backendUrl}/api/chat/transcribe/${sessionId}`, {
       method: 'GET',
       headers: {
         Cookie: request.headers.get('cookie') || '',
@@ -39,13 +41,13 @@ export async function POST(
   { params }: { params: Promise<{ sessionId: string }> }
 ) {
   try {
-    const backendUrl = process.env.BACKEND_URL || 'http://localhost:3001';
+    const backendUrl = appConfig.apiUrl;
     const { sessionId } = await params;
 
     // Get the raw audio data
     const audioData = await request.arrayBuffer();
 
-    const response = await fetch(`${backendUrl}/api/chat/transcribe/${sessionId}`, {
+    const response = await apiFetch(`${backendUrl}/api/chat/transcribe/${sessionId}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/octet-stream',
@@ -71,10 +73,10 @@ export async function DELETE(
   { params }: { params: Promise<{ sessionId: string }> }
 ) {
   try {
-    const backendUrl = process.env.BACKEND_URL || 'http://localhost:3001';
+    const backendUrl = appConfig.apiUrl;
     const { sessionId } = await params;
 
-    const response = await fetch(`${backendUrl}/api/chat/transcribe/${sessionId}`, {
+    const response = await apiFetch(`${backendUrl}/api/chat/transcribe/${sessionId}`, {
       method: 'DELETE',
       headers: {
         Cookie: request.headers.get('cookie') || '',

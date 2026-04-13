@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { appConfig } from '@/lib/config';
+import { apiFetch } from '@/lib/api/client';
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001';
+const BACKEND_URL = appConfig.apiUrl;
 
 // Helper function to get auth token from request cookies
 function getAuthToken(request: NextRequest): string | null {
@@ -17,7 +19,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     }
 
     const { id } = await params;
-    const response = await fetch(`${BACKEND_URL}/api/tenant/config/${id}`, {
+    const response = await apiFetch(`${BACKEND_URL}/api/tenant/config/${id}`, {
       headers: {
         Cookie: `token=${token}`,
         'Content-Type': 'application/json',
@@ -51,7 +53,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     const { id } = await params;
     const body = await request.json();
 
-    const response = await fetch(`${BACKEND_URL}/api/tenant/config/${id}`, {
+    const response = await apiFetch(`${BACKEND_URL}/api/tenant/config/${id}`, {
       method: 'PUT',
       headers: {
         Cookie: `token=${token}`,
@@ -88,7 +90,7 @@ export async function DELETE(
     }
 
     const { id } = await params;
-    const response = await fetch(`${BACKEND_URL}/api/tenant/config/${id}`, {
+    const response = await apiFetch(`${BACKEND_URL}/api/tenant/config/${id}`, {
       method: 'DELETE',
       headers: {
         Cookie: `token=${token}`,

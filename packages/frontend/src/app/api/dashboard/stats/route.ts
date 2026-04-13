@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { appConfig } from '@/lib/config';
+import { apiFetch } from '@/lib/api/client';
 
 export async function GET(request: NextRequest) {
   try {
     // Get the backend URL from environment variable or use default
-    const backendUrl = process.env.BACKEND_URL || 'http://localhost:3001';
+    const backendUrl = appConfig.apiUrl;
 
     // Forward the request to the backend
-    const response = await fetch(`${backendUrl}/api/dashboard/stats`, {
+    const response = await apiFetch(`${backendUrl}/api/dashboard/stats`, {
       method: 'GET',
       headers: {
         Cookie: request.headers.get('Cookie') || '',

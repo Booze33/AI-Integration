@@ -6,11 +6,9 @@ export async function POST(request: NextRequest) {
   try {
     const backendUrl = appConfig.apiUrl;
 
-    // Get the form data from the request
     const formData = await request.formData();
 
-    // Forward to backend
-    const response = await apiFetch(`${backendUrl}/pipeline/upload`, {
+    const response = await apiFetch(`${backendUrl}/pipeline/upload/async`, {
       method: 'POST',
       body: formData,
     });
@@ -23,7 +21,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(data);
   } catch (error) {
-    console.error('Pipeline upload error:', error);
+    console.error('Pipeline async upload error:', error);
     return NextResponse.json(
       { error: 'Upload failed', message: 'Internal server error' },
       { status: 500 }

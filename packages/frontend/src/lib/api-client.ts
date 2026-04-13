@@ -5,6 +5,9 @@
  * One function per endpoint with full TypeScript support.
  */
 
+import { appConfig } from './config';
+import { ApiClientError, apiFetch, getLastRequestId } from './api/client';
+
 // ============================================================================
 // Types and Schemas
 // ============================================================================
@@ -13,6 +16,8 @@ export interface User {
   id: string;
   email: string;
   role: string;
+  tenantId?: string;
+  createdAt?: string;
 }
 
 export interface AuthTokens {
@@ -48,6 +53,11 @@ export interface RefreshResponse {
 
 export interface MeResponse {
   user: User;
+}
+
+export interface ActiveTokensResponse {
+  activeTokenCount: number;
+  tokens: string[];
 }
 
 export interface ChatMessage {
@@ -86,12 +96,38 @@ export interface UploadResponse {
 
 export interface JobStatusResponse {
   jobId: string;
-  status: 'queued' | 'processing' | 'completed' | 'failed';
+  status: 'queued' | 'pending' | 'extracting' | 'chunking' | 'processing' | 'completed' | 'failed';
   progress?: number;
+  fileId?: string;
+  chunks?: {
+    count: number;
+    totalTokens: number;
+  };
+  chunkPreviews?: Array<{
+    id: string;
+    index: number;
+    text: string;
+    tokenCount: number;
+  }>;
+  chunkTexts?: string[];
   result?: any;
   error?: string;
   createdAt: string;
   updatedAt: string;
+  completedAt?: string;
+}
+
+export interface PipelineJobsResponse {
+  jobs: JobStatusResponse[];
+  total: number;
+}
+
+export interface PipelineStatsResponse {
+  waiting: number;
+  active: number;
+  completed: number;
+  failed: number;
+  delayed: number;
 }
 
 export interface TenantAIConfig {
@@ -155,6 +191,12 @@ export interface ApiResponseError {
   statusCode?: number;
 }
 
+let lastFailedRequestCorrelationId: string | null = null;
+
+export function getLastFailedRequestCorrelationId(): string | null {
+  return lastFailedRequestCorrelationId;
+}
+
 // ============================================================================
 // Dashboard Stats Types
 // ============================================================================
@@ -188,7 +230,7 @@ export class ApiClient {
 
   constructor(baseUrl: string = '') {
     this.baseUrl = baseUrl;
-    this.mockMode = process.env.NEXT_PUBLIC_MOCK_MODE === 'true';
+    this.mockMode = appConfig.mockMode;
   }
 
   // ============================================================================
@@ -230,23 +272,29 @@ export class ApiClient {
 
     let response: Response;
     try {
-      response = await fetch(url.toString(), requestOptions);
+      response = await apiFetch(url.toString(), requestOptions);
     } catch (error) {
+      if (error instanceof ApiClientError) {
+        throw new ApiError(error.message, error.statusCode, error.requestId);
+      }
       throw new ApiError(
         `Network error: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        0
+        0,
+        getLastRequestId()
       );
     }
 
     if (!response.ok) {
       let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+      lastFailedRequestCorrelationId =
+        response.headers.get('x-request-id') || response.headers.get('x-correlation-id');
       try {
         const errorData = await response.json();
         errorMessage = errorData.error || errorData.message || errorMessage;
       } catch {
         // Ignore JSON parsing errors
       }
-      throw new ApiError(errorMessage, response.status);
+      throw new ApiError(errorMessage, response.status, getLastRequestId());
     }
 
     // Handle empty responses
@@ -257,7 +305,7 @@ export class ApiClient {
     try {
       return await response.json();
     } catch {
-      throw new ApiError('Invalid JSON response', response.status);
+      throw new ApiError('Invalid JSON response', response.status, getLastRequestId());
     }
   }
 
@@ -302,8 +350,20 @@ export class ApiClient {
     }
   }
 
+  async logoutAllDevices(): Promise<void> {
+    await this.request('POST', '/api/auth/logout-all');
+  }
+
   async getCurrentUser(): Promise<MeResponse> {
     return this.request<MeResponse>('GET', '/api/auth/me');
+  }
+
+  async getActiveTokens(): Promise<ActiveTokensResponse> {
+    return this.request<ActiveTokensResponse>('GET', '/api/auth/tokens');
+  }
+
+  async revokeToken(tokenId: string): Promise<{ message: string }> {
+    return this.request<{ message: string }>('DELETE', `/api/auth/tokens/${tokenId}`);
   }
 
   // ============================================================================
@@ -372,8 +432,30 @@ export class ApiClient {
     });
   }
 
+  async uploadFileAsync(file: File): Promise<UploadResponse> {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    return this.request<UploadResponse>('POST', '/api/pipeline/upload/async', {
+      body: formData,
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+  }
+
   async getJobStatus(jobId: string): Promise<JobStatusResponse> {
     return this.request<JobStatusResponse>('GET', `/api/pipeline/jobs/${jobId}`);
+  }
+
+  async getPipelineJobs(status?: string): Promise<PipelineJobsResponse> {
+    return this.request<PipelineJobsResponse>('GET', '/api/pipeline/jobs', {
+      params: status ? { status } : undefined,
+    });
+  }
+
+  async getPipelineStats(): Promise<PipelineStatsResponse> {
+    return this.request<PipelineStatsResponse>('GET', '/api/pipeline/stats');
   }
 
   // ============================================================================
@@ -502,11 +584,13 @@ export class ApiClient {
 
 export class ApiError extends Error {
   public statusCode: number;
+  public requestId: string | null;
 
-  constructor(message: string, statusCode: number = 500) {
+  constructor(message: string, statusCode: number = 500, requestId: string | null = null) {
     super(message);
     this.name = 'ApiError';
     this.statusCode = statusCode;
+    this.requestId = requestId;
   }
 }
 
