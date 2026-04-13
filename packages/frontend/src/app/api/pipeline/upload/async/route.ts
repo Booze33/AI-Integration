@@ -8,9 +8,12 @@ export async function POST(request: NextRequest) {
 
     const formData = await request.formData();
 
-    const response = await apiFetch(`${backendUrl}/pipeline/upload/async`, {
+    const response = await apiFetch(`${backendUrl}/api/pipeline/upload/async`, {
       method: 'POST',
       body: formData,
+      headers: {
+        Cookie: request.headers.get('cookie') || '',
+      },
     });
 
     const data = await response.json();

@@ -5,17 +5,11 @@ import { apiFetch } from '@/lib/api/client';
 const BACKEND_URL = appConfig.apiUrl;
 const MOCK_MODE = appConfig.mockMode;
 
-// Helper function to get auth token from request cookies
-function getAuthToken(request: NextRequest): string | null {
-  const cookie = request.cookies.get('token');
-  return cookie?.value || null;
-}
-
 // GET /api/tenant/config - Get all tenant configurations
 export async function GET(request: NextRequest) {
   try {
-    const token = getAuthToken(request);
-    if (!token && !MOCK_MODE) {
+    const cookieHeader = request.headers.get('cookie') || '';
+    if (!cookieHeader && !MOCK_MODE) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -45,7 +39,7 @@ export async function GET(request: NextRequest) {
 
     const response = await apiFetch(`${BACKEND_URL}/api/tenant/config`, {
       headers: {
-        Cookie: `token=${token}`,
+        Cookie: cookieHeader,
         'Content-Type': 'application/json',
       },
     });
@@ -69,8 +63,8 @@ export async function GET(request: NextRequest) {
 // POST /api/tenant/config - Create new configuration
 export async function POST(request: NextRequest) {
   try {
-    const token = getAuthToken(request);
-    if (!token) {
+    const cookieHeader = request.headers.get('cookie') || '';
+    if (!cookieHeader) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -79,7 +73,7 @@ export async function POST(request: NextRequest) {
     const response = await apiFetch(`${BACKEND_URL}/api/tenant/config`, {
       method: 'POST',
       headers: {
-        Cookie: `token=${token}`,
+        Cookie: cookieHeader,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(body),

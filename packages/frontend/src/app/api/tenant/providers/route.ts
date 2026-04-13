@@ -5,16 +5,10 @@ import { apiFetch } from '@/lib/api/client';
 const BACKEND_URL = appConfig.apiUrl;
 const MOCK_MODE = appConfig.mockMode;
 
-// Helper function to get auth token from request cookies
-function getAuthToken(request: NextRequest): string | null {
-  const cookie = request.cookies.get('token');
-  return cookie?.value || null;
-}
-
 export async function GET(request: NextRequest) {
   try {
-    const token = getAuthToken(request);
-    if (!token && !MOCK_MODE) {
+    const cookieHeader = request.headers.get('cookie') || '';
+    if (!cookieHeader && !MOCK_MODE) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -50,7 +44,7 @@ export async function GET(request: NextRequest) {
     // Forward the request to the backend
     const response = await apiFetch(`${BACKEND_URL}/api/tenant/providers`, {
       headers: {
-        Cookie: `token=${token}`,
+        Cookie: cookieHeader,
         'Content-Type': 'application/json',
       },
     });

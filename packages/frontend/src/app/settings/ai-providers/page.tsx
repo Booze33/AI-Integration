@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { ApiError, apiClient } from '../../../lib/api-client';
+import { ApiError, apiClient, User } from '../../../lib/api-client';
 import { useToast } from '../../../components/toast/ToastProvider';
 
 interface Provider {
@@ -28,6 +28,7 @@ interface TenantConfig {
 
 export default function SettingsPage() {
   const { showToast } = useToast();
+  const [user, setUser] = useState<User | null>(null);
   const [providers, setProviders] = useState<Provider[]>([]);
   const [configs, setConfigs] = useState<TenantConfig[]>([]);
   const [loading, setLoading] = useState(true);
@@ -47,6 +48,8 @@ export default function SettingsPage() {
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
+
+  const canManageProviders = user ? ['admin', 'owner'].includes(user.role) : false;
 
   useEffect(() => {
     loadData();
@@ -70,17 +73,27 @@ export default function SettingsPage() {
   const loadData = async () => {
     try {
       setLoading(true);
+      setShowAddForm(false);
+      setEditingConfig(null);
 
-      // Load providers
-      const providersResponse = await apiClient.getProviders();
+      const currentUserResponse = await apiClient.getCurrentUser();
+      setUser(currentUserResponse.user);
+
+      if (!['admin', 'owner'].includes(currentUserResponse.user.role)) {
+        setProviders([]);
+        setConfigs([]);
+        return;
+      }
+
+      const [providersResponse, configsResponse] = await Promise.all([
+        apiClient.getProviders(),
+        apiClient.getTenantConfigs(),
+      ]);
       setProviders(providersResponse.data);
-
-      // Load tenant configs
-      const configsResponse = await apiClient.getTenantConfigs();
       setConfigs(configsResponse.data);
     } catch (error) {
       console.error('Failed to load data:', error);
-      if (!(error instanceof ApiError && error.statusCode === 401)) {
+      if (!(error instanceof ApiError && (error.statusCode === 401 || error.statusCode === 403))) {
         showToast('Network error while loading AI providers.', 'error');
       }
     } finally {
@@ -102,12 +115,20 @@ export default function SettingsPage() {
   };
 
   const handleAddConfig = () => {
+    if (!canManageProviders) {
+      return;
+    }
+
     resetForm();
     setEditingConfig(null);
     setShowAddForm(true);
   };
 
   const handleEditConfig = (config: TenantConfig) => {
+    if (!canManageProviders) {
+      return;
+    }
+
     setFormData({
       provider: config.provider,
       api_key: '', // Don't pre-fill API key for security
@@ -144,6 +165,11 @@ export default function SettingsPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (!canManageProviders) {
+      setErrors({ submit: 'Only admin or owner accounts can manage provider settings.' });
+      return;
+    }
 
     if (!validateForm()) {
       return;
@@ -212,6 +238,10 @@ export default function SettingsPage() {
   };
 
   const handleDeleteConfig = async (configId: string) => {
+    if (!canManageProviders) {
+      return;
+    }
+
     if (!confirm('Are you sure you want to deactivate this configuration?')) {
       return;
     }
@@ -278,6 +308,19 @@ export default function SettingsPage() {
               </div>
             ))}
           </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (user && !canManageProviders) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-10 bg-gray-50">
+        <div className="rounded-lg border border-orange-300 bg-orange-50 p-6 text-center shadow-sm">
+          <h2 className="text-xl font-semibold text-orange-700">Access denied</h2>
+          <p className="mt-2 text-sm text-orange-600">
+            Your role ({user.role}) does not have permission to manage AI provider settings.
+          </p>
         </div>
       </div>
     );

@@ -4,24 +4,18 @@ import { apiFetch } from '@/lib/api/client';
 
 const BACKEND_URL = appConfig.apiUrl;
 
-// Helper function to get auth token from request cookies
-function getAuthToken(request: NextRequest): string | null {
-  const cookie = request.cookies.get('token');
-  return cookie?.value || null;
-}
-
 // GET /api/tenant/config/[id] - Get specific configuration
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const token = getAuthToken(request);
-    if (!token) {
+    const cookieHeader = request.headers.get('cookie') || '';
+    if (!cookieHeader) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const { id } = await params;
     const response = await apiFetch(`${BACKEND_URL}/api/tenant/config/${id}`, {
       headers: {
-        Cookie: `token=${token}`,
+        Cookie: cookieHeader,
         'Content-Type': 'application/json',
       },
     });
@@ -45,8 +39,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 // PUT /api/tenant/config/[id] - Update configuration
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const token = getAuthToken(request);
-    if (!token) {
+    const cookieHeader = request.headers.get('cookie') || '';
+    if (!cookieHeader) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -56,7 +50,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     const response = await apiFetch(`${BACKEND_URL}/api/tenant/config/${id}`, {
       method: 'PUT',
       headers: {
-        Cookie: `token=${token}`,
+        Cookie: cookieHeader,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(body),
@@ -84,8 +78,8 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const token = getAuthToken(request);
-    if (!token) {
+    const cookieHeader = request.headers.get('cookie') || '';
+    if (!cookieHeader) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -93,7 +87,7 @@ export async function DELETE(
     const response = await apiFetch(`${BACKEND_URL}/api/tenant/config/${id}`, {
       method: 'DELETE',
       headers: {
-        Cookie: `token=${token}`,
+        Cookie: cookieHeader,
         'Content-Type': 'application/json',
       },
     });

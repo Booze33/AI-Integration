@@ -49,6 +49,23 @@ function envBool(name: string, fallback: boolean): boolean {
   return v.toLowerCase() === 'true';
 }
 
+function parseCookies(cookieHeader: string | undefined): Record<string, string> {
+  const cookies: Record<string, string> = {};
+  if (!cookieHeader) return cookies;
+
+  for (const pair of cookieHeader.split(';')) {
+    const [rawKey, ...rawValue] = pair.trim().split('=');
+    if (!rawKey) continue;
+    const key = decodeURIComponent(rawKey.trim());
+    const value = decodeURIComponent((rawValue || []).join('=').trim());
+    if (key) {
+      cookies[key] = value;
+    }
+  }
+
+  return cookies;
+}
+
 const DEFAULT_WINDOW_MS = () => envInt('RATE_LIMIT_WINDOW_MS', 60_000);
 const DEFAULT_USER_MAX = () => envInt('RATE_LIMIT_USER_MAX', 100);
 const DEFAULT_TENANT_MAX = () => envInt('RATE_LIMIT_TENANT_MAX', 1_000);
@@ -67,6 +84,21 @@ function resolveIp(req: Request): string {
     return first.trim();
   }
   return req.socket?.remoteAddress ?? 'unknown';
+}
+
+function hasAuthenticatedIdentity(req: Request): boolean {
+  const authReq = req as AuthenticatedRequest;
+  if (authReq.user?.userId) {
+    return true;
+  }
+
+  const authHeader = req.headers.authorization;
+  if (authHeader?.startsWith('Bearer ')) {
+    return true;
+  }
+
+  const cookies = parseCookies(req.headers.cookie);
+  return Boolean(cookies.accessToken || cookies.refreshToken);
 }
 
 /** Write standard rate-limit response headers. */
@@ -200,6 +232,10 @@ export function rateLimitByTenant(overrides?: PartialConfig): RequestHandler {
  */
 export function rateLimitByIp(overrides?: PartialConfig): RequestHandler {
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    if (hasAuthenticatedIdentity(req)) {
+      return next();
+    }
+
     const ip = resolveIp(req);
 
     const config: RateLimitConfig = {

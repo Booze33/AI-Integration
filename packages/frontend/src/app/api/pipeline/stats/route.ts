@@ -6,7 +6,7 @@ export async function GET(request: NextRequest) {
   try {
     const backendUrl = appConfig.apiUrl;
 
-    const response = await apiFetch(`${backendUrl}/pipeline/stats`, {
+    const response = await apiFetch(`${backendUrl}/api/pipeline/stats`, {
       method: 'GET',
       headers: {
         Cookie: request.headers.get('cookie') || '',

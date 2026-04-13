@@ -450,7 +450,19 @@ export class DeepgramProvider implements AIProvider {
 
       ws.onmessage = (event) => {
         try {
-          const data = JSON.parse(event.data.toString()) as DeepgramWebSocketMessage;
+          let messageData = '';
+
+          if (typeof event.data === 'string') {
+            messageData = event.data;
+          } else if (Buffer.isBuffer(event.data)) {
+            messageData = event.data.toString();
+          } else if (event.data instanceof ArrayBuffer) {
+            messageData = Buffer.from(event.data).toString();
+          } else {
+            return;
+          }
+
+          const data = JSON.parse(messageData) as DeepgramWebSocketMessage;
 
           // Clear pong timeout on any message
           if (pongTimeout) {

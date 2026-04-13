@@ -11,10 +11,10 @@ import {
   addStreamChunk,
   markStreamFinished,
   StreamState,
-} from '../stream-store';
+} from '../stream-store.js';
 
 // Mock the Redis client
-vi.mock('../client', () => ({
+vi.mock('../client.js', () => ({
   getRedisClient: vi.fn(() => ({
     setEx: vi.fn(),
     get: vi.fn(),
@@ -53,7 +53,7 @@ describe('Redis Stream Store', () => {
     const mockClient = {
       setEx: vi.fn().mockResolvedValue('OK'),
     };
-    const { getRedisClient } = await import('../client');
+    const { getRedisClient } = await import('../client.js');
     (getRedisClient as any).mockResolvedValue(mockClient);
 
     await storeStreamState(mockStreamState);
@@ -70,7 +70,7 @@ describe('Redis Stream Store', () => {
     const mockClient = {
       get: vi.fn().mockResolvedValue(JSON.stringify(mockStreamState)),
     };
-    const { getRedisClient } = await import('../client');
+    const { getRedisClient } = await import('../client.js');
     (getRedisClient as any).mockResolvedValue(mockClient);
 
     const result = await getStreamState('test-stream-123');
@@ -84,7 +84,7 @@ describe('Redis Stream Store', () => {
     const mockClient = {
       get: vi.fn().mockResolvedValue(null),
     };
-    const { getRedisClient } = await import('../client');
+    const { getRedisClient } = await import('../client.js');
     (getRedisClient as any).mockResolvedValue(mockClient);
 
     const result = await getStreamState('non-existent');
@@ -100,7 +100,7 @@ describe('Redis Stream Store', () => {
       get: vi.fn().mockResolvedValue(JSON.stringify(existingState)),
       setEx: vi.fn().mockResolvedValue('OK'),
     };
-    const { getRedisClient } = await import('../client');
+    const { getRedisClient } = await import('../client.js');
     (getRedisClient as any).mockResolvedValue(mockClient);
 
     await updateStreamState('test-stream-123', updates);
@@ -117,7 +117,7 @@ describe('Redis Stream Store', () => {
     const mockClient = {
       del: vi.fn().mockResolvedValue(1),
     };
-    const { getRedisClient } = await import('../client');
+    const { getRedisClient } = await import('../client.js');
     (getRedisClient as any).mockResolvedValue(mockClient);
 
     await deleteStreamState('test-stream-123');
@@ -132,7 +132,7 @@ describe('Redis Stream Store', () => {
       get: vi.fn().mockResolvedValue(JSON.stringify(existingState)),
       setEx: vi.fn().mockResolvedValue('OK'),
     };
-    const { getRedisClient } = await import('../client');
+    const { getRedisClient } = await import('../client.js');
     (getRedisClient as any).mockResolvedValue(mockClient);
 
     await addStreamChunk('test-stream-123', ' world');
@@ -153,7 +153,7 @@ describe('Redis Stream Store', () => {
       get: vi.fn().mockResolvedValue(JSON.stringify(existingState)),
       setEx: vi.fn().mockResolvedValue('OK'),
     };
-    const { getRedisClient } = await import('../client');
+    const { getRedisClient } = await import('../client.js');
     (getRedisClient as any).mockResolvedValue(mockClient);
 
     await markStreamFinished('test-stream-123', error);

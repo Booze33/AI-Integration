@@ -543,7 +543,7 @@ export function createChatRoutes(pool: Pool): ExpressRouter {
    * Get chat history for the authenticated user
    */
   router.get(
-    '/history',
+    '/chat/history',
     authenticate as any,
     requireViewer as any,
     async (req: AuthenticatedRequest, res: Response) => {
@@ -575,7 +575,7 @@ export function createChatRoutes(pool: Pool): ExpressRouter {
    * Save chat history for the authenticated user
    */
   router.post(
-    '/history',
+    '/chat/history',
     authenticate as any,
     requireViewer as any,
     async (req: AuthenticatedRequest, res: Response) => {
