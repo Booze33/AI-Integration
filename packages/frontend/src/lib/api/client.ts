@@ -86,6 +86,8 @@ function clearLocalAuthState() {
 
   try {
     localStorage.removeItem('chatHistory');
+    localStorage.removeItem('uploadChatHistory');
+    localStorage.removeItem('uploadChatPendingContext');
     sessionStorage.clear();
   } catch {
     // ignore storage errors

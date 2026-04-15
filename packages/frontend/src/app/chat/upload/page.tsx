@@ -2,9 +2,9 @@
 
 import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { apiClient, ChatHistorySession } from '../../lib/api-client';
-import { apiFetch } from '../../lib/api/client';
-import { useChatStream } from '../../lib/useChatStream';
+import { apiClient, ChatHistorySession } from '../../../lib/api-client';
+import { apiFetch } from '../../../lib/api/client';
+import { useChatStream } from '../../../lib/useChatStream';
 
 interface ChatMessage {
   id: string;
@@ -21,7 +21,8 @@ interface UserInfo {
 }
 
 const STORAGE_KEYS = {
-  history: 'chatHistory',
+  history: 'uploadChatHistory',
+  pendingUploadContext: 'uploadChatPendingContext',
 };
 
 const SCROLL_BOTTOM_THRESHOLD_PX = 32;
@@ -277,23 +278,49 @@ export default function ChatPage() {
 
   useEffect(() => {
     const savedHistory = localStorage.getItem(STORAGE_KEYS.history);
+    let initialMessages: ChatMessage[] = [];
+
     if (savedHistory) {
       try {
         const parsed = JSON.parse(savedHistory) as ChatMessage[];
         if (Array.isArray(parsed)) {
-          setMessages(
-            parsed.map((message) => ({
-              ...message,
-              createdAt: message.createdAt || new Date().toISOString(),
-            }))
-          );
+          initialMessages = parsed.map((message) => ({
+            ...message,
+            createdAt: message.createdAt || new Date().toISOString(),
+          }));
         }
       } catch {
-        setMessages([]);
+        initialMessages = [];
       }
-    } else {
-      setMessages([]);
     }
+
+    const pendingUploadContext = localStorage.getItem(STORAGE_KEYS.pendingUploadContext);
+    if (pendingUploadContext) {
+      try {
+        const parsed = JSON.parse(pendingUploadContext) as Partial<ChatMessage>;
+        if (
+          parsed.role === 'system' &&
+          typeof parsed.content === 'string' &&
+          parsed.content.trim()
+        ) {
+          initialMessages = [
+            ...initialMessages,
+            {
+              id: parsed.id || `system-${Date.now()}`,
+              role: 'system',
+              content: parsed.content,
+              createdAt: parsed.createdAt || new Date().toISOString(),
+            },
+          ];
+        }
+      } catch {
+        // Ignore malformed pending upload context
+      }
+
+      localStorage.removeItem(STORAGE_KEYS.pendingUploadContext);
+    }
+
+    setMessages(initialMessages);
 
     async function verifyAuth() {
       try {
@@ -346,46 +373,38 @@ export default function ChatPage() {
     }
   };
 
-  const ensureAssistantDraft = useCallback(() => {
+  const appendMessage = (message: ChatMessage) => {
+    setMessages((prev) => [...prev, message]);
+  };
+
+  const _updateAssistant = (content: string, partial = false) => {
     setMessages((prev) => {
-      const hasDraft = prev.some((message) => message.id === 'assistant-draft');
-      if (hasDraft) {
-        return prev;
+      const assistant = prev.find((m) => m.role === 'assistant' && m.id === 'assistant-draft');
+      if (assistant) {
+        const updated = { ...assistant, content, streamError: undefined };
+        return prev.map((msg) => (msg.id === 'assistant-draft' ? updated : msg));
       }
-
-      return [
-        ...prev,
-        {
-          id: 'assistant-draft',
-          role: 'assistant',
-          content: '',
-          createdAt: new Date().toISOString(),
-          streamError: undefined,
-        },
-      ];
-    });
-  }, []);
-
-  const appendAssistantCharacters = useCallback((chars: string) => {
-    if (!chars) return;
-
-    setMessages((prev) => {
-      const hasDraft = prev.some((message) => message.id === 'assistant-draft');
-
-      if (!hasDraft) {
+      if (partial || content) {
         return [
           ...prev,
           {
             id: 'assistant-draft',
             role: 'assistant',
-            content: chars,
+            content,
             createdAt: new Date().toISOString(),
             streamError: undefined,
           },
         ];
       }
+      return prev;
+    });
+  };
 
-      return prev.map((message) =>
+  const appendAssistantCharacters = useCallback((chars: string) => {
+    if (!chars) return;
+
+    setMessages((prev) =>
+      prev.map((message) =>
         message.id === 'assistant-draft'
           ? {
               ...message,
@@ -393,8 +412,8 @@ export default function ChatPage() {
               streamError: undefined,
             }
           : message
-      );
-    });
+      )
+    );
   }, []);
 
   const setAssistantDraftError = useCallback((message: string) => {
@@ -458,15 +477,11 @@ export default function ChatPage() {
     );
   };
 
-  const handleStreamStart = useCallback(
-    (payload: { streamId?: string; id?: string }) => {
-      const nextStreamId = payload.streamId || payload.id || null;
-      activeStreamIdRef.current = nextStreamId;
-      setFinishedReason('');
-      ensureAssistantDraft();
-    },
-    [ensureAssistantDraft]
-  );
+  const handleStreamStart = useCallback((payload: { streamId?: string; id?: string }) => {
+    const nextStreamId = payload.streamId || payload.id || null;
+    activeStreamIdRef.current = nextStreamId;
+    setFinishedReason('');
+  }, []);
 
   const handleStreamChunk = useCallback(
     (chunk: string) => {
@@ -549,20 +564,8 @@ export default function ChatPage() {
       createdAt: new Date().toISOString(),
     };
 
-    setMessages((prev) => {
-      const withoutDraft = prev.filter((message) => message.id !== 'assistant-draft');
-      return [
-        ...withoutDraft,
-        newUserMessage,
-        {
-          id: 'assistant-draft',
-          role: 'assistant',
-          content: '',
-          createdAt: new Date().toISOString(),
-          streamError: undefined,
-        },
-      ];
-    });
+    appendMessage(newUserMessage);
+    _updateAssistant('');
 
     const payload = [
       ...messagesRef.current.filter((m) => m.role !== 'assistant' || m.id !== 'assistant-draft'),

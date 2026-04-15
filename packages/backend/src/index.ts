@@ -1,12 +1,14 @@
 import 'dotenv/config';
 import cors from 'cors';
 import express from 'express';
+import { createServer } from 'http';
 import { Pool } from 'pg';
 import { setupOptimizedDatabase } from './database';
 import { createDiagnosticsRouter } from './database/diagnostics';
 import { runMigrations } from './database/migrate';
 import { authRoutes, setAuthPool } from './auth';
 import { createChatRoutes } from './chat';
+import { registerChatWebSocket } from './chat/websocket';
 import { pipelineRoutes } from './pipeline';
 import { webhookRoutes } from './webhook';
 import { tenantConfigRoutes, setTenantConfigPool } from './providers/routes';
@@ -276,9 +278,13 @@ async function startServer() {
     }
 
     const port = env.PORT;
-    app.listen(port, env.HOST, () => {
+    const server = createServer(app);
+    registerChatWebSocket(server);
+
+    server.listen(port, env.HOST, () => {
       console.log(`🚀 Backend running on http://${env.HOST}:${port}`);
       console.log(`📊 Health check: http://localhost:${port}/health`);
+      console.log(`🔌 WebSocket chat: ws://${env.HOST}:${port}/ws/chat`);
     });
   } catch (error) {
     console.error('❌ Failed to start server:', error);

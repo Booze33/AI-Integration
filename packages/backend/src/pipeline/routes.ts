@@ -76,6 +76,13 @@ router.post(
             0
           ),
         },
+        chunkPreviews: result.chunks.slice(0, 3).map((chunk: TextChunk) => ({
+          id: chunk.id,
+          index: chunk.index,
+          text: chunk.text,
+          tokenCount: chunk.tokenCount || 0,
+        })),
+        chunkTexts: result.chunks.map((chunk: TextChunk) => chunk.text),
       });
     } catch (error) {
       console.error('Upload error:', error);
