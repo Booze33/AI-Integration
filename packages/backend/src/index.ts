@@ -279,7 +279,7 @@ async function startServer() {
 
     const port = env.PORT;
     const server = createServer(app);
-    registerChatWebSocket(server);
+    registerChatWebSocket(server, sharedPool!);
 
     server.listen(port, env.HOST, () => {
       console.log(`🚀 Backend running on http://${env.HOST}:${port}`);

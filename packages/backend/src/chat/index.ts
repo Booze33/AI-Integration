@@ -40,7 +40,13 @@ async function ensureChatHistoryTable(pool: Pool): Promise<void> {
   `);
 }
 
-async function insertChatHistory(
+const isValidUUID = (value: unknown): value is string =>
+  typeof value === 'string' &&
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+
+export { isValidUUID };
+
+export async function insertChatHistory(
   pool: Pool,
   userId: string,
   userEmail: string,
@@ -125,6 +131,7 @@ interface ChatRequestBody {
   presencePenalty?: number;
   stop?: string[];
   streamId?: string; // For reconnect support
+  sessionId?: string; // Stable chat session ID for cross-turn history grouping
 }
 
 type RealtimeSession = Awaited<ReturnType<NonNullable<AIProvider['createRealtimeSession']>>>;
@@ -769,12 +776,15 @@ async function startNewStream(
         { role: 'assistant', content: assistantText },
       ];
 
+      // Use client-provided sessionId as the stable grouping key so all turns
+      // in one conversation share the same stream_id in chat_history.
+      const historyStreamId = isValidUUID(body.sessionId) ? body.sessionId : streamId;
       await insertChatHistory(
         pool,
         user.userId,
         user.email,
         user.role || 'user',
-        streamId,
+        historyStreamId,
         conversation
       );
     }

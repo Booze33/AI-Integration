@@ -231,6 +231,7 @@ export default function ChatPage() {
   const [selectedHistorySessionId, setSelectedHistorySessionId] = useState<string | null>(null);
   const [historySearchTerm, setHistorySearchTerm] = useState('');
   const [historyPage, setHistoryPage] = useState(1);
+  const [isHistoryHydrated, setIsHistoryHydrated] = useState(false);
 
   const messageListRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -239,6 +240,7 @@ export default function ChatPage() {
   const messagesRef = useRef<ChatMessage[]>([]);
   const assistantContentRef = useRef('');
   const activeStreamIdRef = useRef<string | null>(null);
+  const chatSessionIdRef = useRef<string | null>(null);
   const pendingCharacterQueueRef = useRef('');
   const flushCharactersRafRef = useRef<number | null>(null);
   const flushDrainResolversRef = useRef<Array<() => void>>([]);
@@ -277,23 +279,25 @@ export default function ChatPage() {
 
   useEffect(() => {
     const savedHistory = localStorage.getItem(STORAGE_KEYS.history);
+    let initialMessages: ChatMessage[] = [];
+
     if (savedHistory) {
       try {
         const parsed = JSON.parse(savedHistory) as ChatMessage[];
         if (Array.isArray(parsed)) {
-          setMessages(
-            parsed.map((message) => ({
-              ...message,
-              createdAt: message.createdAt || new Date().toISOString(),
-            }))
-          );
+          initialMessages = parsed.map((message) => ({
+            ...message,
+            createdAt: message.createdAt || new Date().toISOString(),
+          }));
         }
       } catch {
-        setMessages([]);
+        initialMessages = [];
       }
-    } else {
-      setMessages([]);
     }
+
+    localStorage.setItem(STORAGE_KEYS.history, JSON.stringify(initialMessages));
+    setMessages(initialMessages);
+    setIsHistoryHydrated(true);
 
     async function verifyAuth() {
       try {
@@ -308,9 +312,10 @@ export default function ChatPage() {
   }, [router]);
 
   useEffect(() => {
+    if (!isHistoryHydrated) return;
     messagesRef.current = messages;
     localStorage.setItem(STORAGE_KEYS.history, JSON.stringify(messages));
-  }, [messages]);
+  }, [isHistoryHydrated, messages]);
 
   useEffect(() => {
     setHistoryPage(1);
@@ -336,15 +341,6 @@ export default function ChatPage() {
       window.removeEventListener('keydown', handleEscape);
     };
   }, [isHistoryOpen]);
-
-  const saveChatHistory = async (historyMessages: ChatMessage[], streamId?: string) => {
-    try {
-      // Use the apiClient's saveChatHistory method
-      await apiClient.saveChatHistory(historyMessages, streamId);
-    } catch (err) {
-      console.error('Failed to persist chat history:', err);
-    }
-  };
 
   const ensureAssistantDraft = useCallback(() => {
     setMessages((prev) => {
@@ -485,18 +481,6 @@ export default function ChatPage() {
     async (payload: { finishReason?: string }) => {
       await drainCharacterQueue();
       setFinishedReason(payload.finishReason || 'stop');
-
-      const finalAssistantContent = assistantContentRef.current;
-      const persistedMessages = [
-        ...messagesRef.current.filter((m) => m.id !== 'assistant-draft'),
-        {
-          id: `assistant-${Date.now()}`,
-          role: 'assistant' as const,
-          content: finalAssistantContent,
-          createdAt: new Date().toISOString(),
-        },
-      ] as ChatMessage[];
-      saveChatHistory(persistedMessages, activeStreamIdRef.current || undefined);
       finalizeAssistant();
       assistantContentRef.current = '';
       activeStreamIdRef.current = null;
@@ -568,7 +552,10 @@ export default function ChatPage() {
       ...messagesRef.current.filter((m) => m.role !== 'assistant' || m.id !== 'assistant-draft'),
       newUserMessage,
     ];
-    await startStream(payload);
+    // Generate a stable session ID on first send; reuse it for every subsequent
+    // turn so the backend groups all history rows under one stream_id.
+    chatSessionIdRef.current ??= crypto.randomUUID();
+    await startStream(payload, chatSessionIdRef.current);
   };
 
   const handleConfirmNewChat = () => {
@@ -586,6 +573,7 @@ export default function ChatPage() {
     setSelectedHistorySessionId(null);
     assistantContentRef.current = '';
     activeStreamIdRef.current = null;
+    chatSessionIdRef.current = null;
   };
 
   const openHistoryDrawer = async () => {
@@ -630,6 +618,7 @@ export default function ChatPage() {
     setIsReadOnlyHistoryView(true);
     setSelectedHistorySessionId(session.sessionId);
     setIsHistoryOpen(false);
+    chatSessionIdRef.current = null;
   };
 
   const retryInlineStream = async () => {
@@ -649,7 +638,7 @@ export default function ChatPage() {
     const payload = messagesRef.current.filter(
       (message) => message.role !== 'assistant' || message.id !== 'assistant-draft'
     );
-    await startStream(payload);
+    await startStream(payload, chatSessionIdRef.current ?? undefined);
   };
 
   const handleCopyMessage = async (messageId: string, content: string) => {

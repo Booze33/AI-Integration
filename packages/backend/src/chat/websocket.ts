@@ -2,13 +2,16 @@ import { IncomingMessage } from 'http';
 import { randomUUID } from 'crypto';
 import { WebSocketServer, WebSocket } from 'ws';
 import type { Server } from 'http';
+import { Pool } from 'pg';
 import { getProvider, ChatMessage, ChatOptions } from '../providers';
 import { verifyToken, TokenPayload } from '../auth/jwt';
+import { insertChatHistory, isValidUUID } from './index';
 
 interface ChatStartPayload {
   type: 'start';
   messages: ChatMessage[];
   options?: Omit<ChatOptions, 'stream'>;
+  sessionId?: string;
 }
 
 interface ChatAbortPayload {
@@ -87,7 +90,7 @@ function closeWithError(socket: WebSocket, message: string): void {
   socket.close(1008, message);
 }
 
-export function registerChatWebSocket(server: Server): void {
+export function registerChatWebSocket(server: Server, pool: Pool): void {
   const wss = new WebSocketServer({ noServer: true });
 
   server.on('upgrade', (req, socket, head) => {
@@ -162,6 +165,8 @@ export function registerChatWebSocket(server: Server): void {
         isStreaming = true;
         isAborted = false;
         const streamId = randomUUID();
+        // Use client sessionId as stable grouping key; fall back to per-request UUID.
+        const historyStreamId = isValidUUID(payload.sessionId) ? payload.sessionId : streamId;
 
         const options: ChatOptions = {
           ...(payload.options || {}),
@@ -178,7 +183,9 @@ export function registerChatWebSocket(server: Server): void {
 
         try {
           const provider = getProvider();
+          let assistantText = '';
           let chunkIndex = 0;
+          let streamFinished = false;
           const iterator = provider.chatStream(messages, options);
 
           for await (const chunk of iterator) {
@@ -188,6 +195,7 @@ export function registerChatWebSocket(server: Server): void {
 
             const content = chunk.delta.content || '';
             if (content) {
+              assistantText += content;
               send(socket, {
                 type: 'chunk',
                 content,
@@ -197,6 +205,7 @@ export function registerChatWebSocket(server: Server): void {
             }
 
             if (chunk.finishReason) {
+              streamFinished = true;
               send(socket, {
                 type: 'done',
                 finishReason: chunk.finishReason,
@@ -210,6 +219,22 @@ export function registerChatWebSocket(server: Server): void {
               type: 'done',
               finishReason: 'abort',
             });
+          }
+
+          // Persist to chat history when stream completed successfully.
+          if (streamFinished && assistantText) {
+            const conversation: ChatMessage[] = [
+              ...messages,
+              { role: 'assistant', content: assistantText },
+            ];
+            await insertChatHistory(
+              pool,
+              authUser.userId,
+              authUser.email,
+              authUser.role || 'user',
+              historyStreamId,
+              conversation
+            );
           }
         } catch (error) {
           send(socket, {
