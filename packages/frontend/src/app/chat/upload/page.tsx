@@ -232,6 +232,7 @@ export default function ChatPage() {
   const [selectedHistorySessionId, setSelectedHistorySessionId] = useState<string | null>(null);
   const [historySearchTerm, setHistorySearchTerm] = useState('');
   const [historyPage, setHistoryPage] = useState(1);
+  const [isHistoryHydrated, setIsHistoryHydrated] = useState(false);
 
   const messageListRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -240,6 +241,7 @@ export default function ChatPage() {
   const messagesRef = useRef<ChatMessage[]>([]);
   const assistantContentRef = useRef('');
   const activeStreamIdRef = useRef<string | null>(null);
+  const chatSessionIdRef = useRef<string | null>(null);
   const pendingCharacterQueueRef = useRef('');
   const flushCharactersRafRef = useRef<number | null>(null);
   const flushDrainResolversRef = useRef<Array<() => void>>([]);
@@ -316,11 +318,12 @@ export default function ChatPage() {
       } catch {
         // Ignore malformed pending upload context
       }
-
-      localStorage.removeItem(STORAGE_KEYS.pendingUploadContext);
     }
 
+    localStorage.setItem(STORAGE_KEYS.history, JSON.stringify(initialMessages));
+    localStorage.removeItem(STORAGE_KEYS.pendingUploadContext);
     setMessages(initialMessages);
+    setIsHistoryHydrated(true);
 
     async function verifyAuth() {
       try {
@@ -335,9 +338,10 @@ export default function ChatPage() {
   }, [router]);
 
   useEffect(() => {
+    if (!isHistoryHydrated) return;
     messagesRef.current = messages;
     localStorage.setItem(STORAGE_KEYS.history, JSON.stringify(messages));
-  }, [messages]);
+  }, [isHistoryHydrated, messages]);
 
   useEffect(() => {
     setHistoryPage(1);
@@ -364,47 +368,50 @@ export default function ChatPage() {
     };
   }, [isHistoryOpen]);
 
-  const saveChatHistory = async (historyMessages: ChatMessage[], streamId?: string) => {
-    try {
-      // Use the apiClient's saveChatHistory method
-      await apiClient.saveChatHistory(historyMessages, streamId);
-    } catch (err) {
-      console.error('Failed to persist chat history:', err);
-    }
-  };
-
   const appendMessage = (message: ChatMessage) => {
     setMessages((prev) => [...prev, message]);
   };
 
-  const _updateAssistant = (content: string, partial = false) => {
+  const ensureAssistantDraft = useCallback(() => {
     setMessages((prev) => {
-      const assistant = prev.find((m) => m.role === 'assistant' && m.id === 'assistant-draft');
-      if (assistant) {
-        const updated = { ...assistant, content, streamError: undefined };
-        return prev.map((msg) => (msg.id === 'assistant-draft' ? updated : msg));
+      const hasDraft = prev.some((message) => message.id === 'assistant-draft');
+      if (hasDraft) {
+        return prev;
       }
-      if (partial || content) {
+
+      return [
+        ...prev,
+        {
+          id: 'assistant-draft',
+          role: 'assistant',
+          content: '',
+          createdAt: new Date().toISOString(),
+          streamError: undefined,
+        },
+      ];
+    });
+  }, []);
+
+  const appendAssistantCharacters = useCallback((chars: string) => {
+    if (!chars) return;
+
+    setMessages((prev) => {
+      const hasDraft = prev.some((message) => message.id === 'assistant-draft');
+
+      if (!hasDraft) {
         return [
           ...prev,
           {
             id: 'assistant-draft',
             role: 'assistant',
-            content,
+            content: chars,
             createdAt: new Date().toISOString(),
             streamError: undefined,
           },
         ];
       }
-      return prev;
-    });
-  };
 
-  const appendAssistantCharacters = useCallback((chars: string) => {
-    if (!chars) return;
-
-    setMessages((prev) =>
-      prev.map((message) =>
+      return prev.map((message) =>
         message.id === 'assistant-draft'
           ? {
               ...message,
@@ -412,8 +419,8 @@ export default function ChatPage() {
               streamError: undefined,
             }
           : message
-      )
-    );
+      );
+    });
   }, []);
 
   const setAssistantDraftError = useCallback((message: string) => {
@@ -477,11 +484,15 @@ export default function ChatPage() {
     );
   };
 
-  const handleStreamStart = useCallback((payload: { streamId?: string; id?: string }) => {
-    const nextStreamId = payload.streamId || payload.id || null;
-    activeStreamIdRef.current = nextStreamId;
-    setFinishedReason('');
-  }, []);
+  const handleStreamStart = useCallback(
+    (payload: { streamId?: string; id?: string }) => {
+      const nextStreamId = payload.streamId || payload.id || null;
+      activeStreamIdRef.current = nextStreamId;
+      setFinishedReason('');
+      ensureAssistantDraft();
+    },
+    [ensureAssistantDraft]
+  );
 
   const handleStreamChunk = useCallback(
     (chunk: string) => {
@@ -500,18 +511,6 @@ export default function ChatPage() {
     async (payload: { finishReason?: string }) => {
       await drainCharacterQueue();
       setFinishedReason(payload.finishReason || 'stop');
-
-      const finalAssistantContent = assistantContentRef.current;
-      const persistedMessages = [
-        ...messagesRef.current.filter((m) => m.id !== 'assistant-draft'),
-        {
-          id: `assistant-${Date.now()}`,
-          role: 'assistant' as const,
-          content: finalAssistantContent,
-          createdAt: new Date().toISOString(),
-        },
-      ] as ChatMessage[];
-      saveChatHistory(persistedMessages, activeStreamIdRef.current || undefined);
       finalizeAssistant();
       assistantContentRef.current = '';
       activeStreamIdRef.current = null;
@@ -565,13 +564,14 @@ export default function ChatPage() {
     };
 
     appendMessage(newUserMessage);
-    _updateAssistant('');
+    ensureAssistantDraft();
 
     const payload = [
       ...messagesRef.current.filter((m) => m.role !== 'assistant' || m.id !== 'assistant-draft'),
       newUserMessage,
     ];
-    await startStream(payload);
+    chatSessionIdRef.current ??= crypto.randomUUID();
+    await startStream(payload, chatSessionIdRef.current);
   };
 
   const handleConfirmNewChat = () => {
@@ -589,6 +589,7 @@ export default function ChatPage() {
     setSelectedHistorySessionId(null);
     assistantContentRef.current = '';
     activeStreamIdRef.current = null;
+    chatSessionIdRef.current = null;
   };
 
   const openHistoryDrawer = async () => {
@@ -633,6 +634,7 @@ export default function ChatPage() {
     setIsReadOnlyHistoryView(true);
     setSelectedHistorySessionId(session.sessionId);
     setIsHistoryOpen(false);
+    chatSessionIdRef.current = null;
   };
 
   const retryInlineStream = async () => {
@@ -652,7 +654,7 @@ export default function ChatPage() {
     const payload = messagesRef.current.filter(
       (message) => message.role !== 'assistant' || message.id !== 'assistant-draft'
     );
-    await startStream(payload);
+    await startStream(payload, chatSessionIdRef.current ?? undefined);
   };
 
   const handleCopyMessage = async (messageId: string, content: string) => {

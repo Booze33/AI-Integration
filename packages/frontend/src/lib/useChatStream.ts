@@ -114,7 +114,7 @@ export function useChatStream(options: UseChatStreamOptions = {}) {
   }, []);
 
   const start = useCallback(
-    async (messages: ChatStreamMessage[]) => {
+    async (messages: ChatStreamMessage[], sessionId?: string) => {
       abort();
       lastEventIdRef.current = null;
       streamIdRef.current = null;
@@ -148,6 +148,7 @@ export function useChatStream(options: UseChatStreamOptions = {}) {
               JSON.stringify({
                 type: 'start',
                 messages,
+                ...(sessionId ? { sessionId } : {}),
               })
             );
           };
@@ -236,7 +237,10 @@ export function useChatStream(options: UseChatStreamOptions = {}) {
           setTransport('sse');
 
           try {
-            const body: Record<string, unknown> = { messages };
+            const body: Record<string, unknown> = {
+              messages,
+              ...(sessionId ? { sessionId } : {}),
+            };
             if (streamIdRef.current) {
               body.streamId = streamIdRef.current;
             }
