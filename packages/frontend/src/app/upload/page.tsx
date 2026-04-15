@@ -44,7 +44,7 @@ type UploadMode = 'sync' | 'background';
 type JobFilter = 'all' | 'failed';
 
 const UPLOAD_MODE_STORAGE_KEY = 'uploadProcessingMode';
-const CHAT_HISTORY_STORAGE_KEY = 'chatHistory';
+const UPLOAD_CHAT_PENDING_CONTEXT_STORAGE_KEY = 'uploadChatPendingContext';
 
 function normalizeStatus(status?: string): UploadJob['status'] {
   if (
@@ -371,6 +371,8 @@ export default function UploadPage() {
               status: 'completed',
               progress: 100,
               chunks: syncResponse?.chunks,
+              chunkPreviews: syncResponse?.chunkPreviews || [],
+              chunkTexts: syncResponse?.chunkTexts || [],
             },
           ]);
         } else {
@@ -514,26 +516,8 @@ export default function UploadPage() {
       createdAt: new Date().toISOString(),
     };
 
-    const existingRaw = localStorage.getItem(CHAT_HISTORY_STORAGE_KEY);
-    let existingMessages: Array<{ id: string; role: string; content: string; createdAt?: string }> =
-      [];
-
-    if (existingRaw) {
-      try {
-        const parsed = JSON.parse(existingRaw);
-        if (Array.isArray(parsed)) {
-          existingMessages = parsed;
-        }
-      } catch {
-        existingMessages = [];
-      }
-    }
-
-    localStorage.setItem(
-      CHAT_HISTORY_STORAGE_KEY,
-      JSON.stringify([...existingMessages, systemMessage])
-    );
-    router.push('/chat');
+    localStorage.setItem(UPLOAD_CHAT_PENDING_CONTEXT_STORAGE_KEY, JSON.stringify(systemMessage));
+    router.push('/chat/upload');
   };
 
   const handleDragOver = useCallback((e: DragEvent<HTMLDivElement>) => {

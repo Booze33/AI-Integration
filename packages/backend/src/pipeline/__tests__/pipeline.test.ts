@@ -171,23 +171,27 @@ describe('Pipeline Routes', () => {
         .attach('file', Buffer.from('test pdf content'), 'test.pdf')
         .expect(200);
 
-      expect(response.body).toEqual({
-        success: true,
-        file: {
-          id: expect.any(String),
-          originalName: 'test.pdf',
-          mimeType: 'application/pdf',
-          size: expect.any(Number),
-        },
-        extraction: {
-          textLength: expect.any(Number),
-          pageCount: expect.any(Number),
-        },
-        chunks: {
-          count: expect.any(Number),
-          totalTokens: expect.any(Number),
-        },
-      });
+      expect(response.body).toEqual(
+        expect.objectContaining({
+          success: true,
+          file: {
+            id: expect.any(String),
+            originalName: 'test.pdf',
+            mimeType: 'application/pdf',
+            size: expect.any(Number),
+          },
+          extraction: {
+            textLength: expect.any(Number),
+            pageCount: expect.any(Number),
+          },
+          chunks: {
+            count: expect.any(Number),
+            totalTokens: expect.any(Number),
+          },
+          chunkPreviews: expect.any(Array),
+          chunkTexts: expect.any(Array),
+        })
+      );
     });
 
     it('should return 400 if no file uploaded', async () => {

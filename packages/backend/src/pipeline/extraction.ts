@@ -35,16 +35,16 @@ export class TextExtractionService {
    * Extract text from PDF
    */
   private async extractFromPdf(fileId: string, buffer: Buffer): Promise<ExtractionResult> {
+    const parser = new pdfParse.PDFParse({ data: Uint8Array.from(buffer) });
+
     try {
-      const result = await (pdfParse as any)(buffer);
+      const textResult = await parser.getText();
+
       return {
         fileId,
-        text: result.text || '',
-        pageCount: result.numpages,
-        metadata: {
-          info: result.info,
-          metadata: result.metadata,
-        },
+        text: textResult.text || '',
+        pageCount: textResult.total,
+        metadata: {},
         extractedAt: new Date(),
       };
     } catch (error) {
@@ -52,6 +52,8 @@ export class TextExtractionService {
       const newError = new Error(message);
       (newError as any).cause = error;
       throw newError;
+    } finally {
+      await parser.destroy();
     }
   }
 
