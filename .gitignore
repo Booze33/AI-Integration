@@ -9,3 +9,4 @@ docker-compose*.yml
 .docker/
 coverage/
 .continue/
+packages/backend/uploads/
