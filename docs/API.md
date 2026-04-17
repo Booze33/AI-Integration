@@ -20,7 +20,7 @@ Content-Type: application/json
 }
 ```
 
-**Response:**
+**Response (200):**
 
 ```json
 {
@@ -35,6 +35,8 @@ Content-Type: application/json
 }
 ```
 
+The response also sets `accessToken` and `refreshToken` as HttpOnly cookies with `SameSite=Lax`.
+
 ### Register
 
 ```http
@@ -48,12 +50,74 @@ Content-Type: application/json
 }
 ```
 
+**Response (201):**
+
+```json
+{
+  "message": "User registered successfully",
+  "user": {
+    "id": "user-uuid",
+    "email": "user@example.com",
+    "role": "member",
+    "tenantId": "tenant-uuid"
+  },
+  "accessToken": "eyJhbGciOiJSUzI1NiIs...",
+  "refreshToken": "eyJhbGciOiJSUzI1NiIs..."
+}
+```
+
+The response also sets `accessToken` and `refreshToken` as HttpOnly cookies with `SameSite=Lax`.
+
 ### Refresh Token
 
 ```http
 POST /auth/refresh
-Authorization: Bearer <refresh_token>
+Content-Type: application/json
+
+{
+  "refreshToken": "eyJhbGciOiJSUzI1NiIs..."
+}
 ```
+
+**Response (200):**
+
+```json
+{
+  "message": "Tokens refreshed successfully",
+  "user": {
+    "id": "user-uuid",
+    "email": "user@example.com",
+    "role": "admin"
+  },
+  "accessToken": "eyJhbGciOiJSUzI1NiIs...",
+  "refreshToken": "eyJhbGciOiJSUzI1NiIs..."
+}
+```
+
+The response also sets new `accessToken` and `refreshToken` as HttpOnly cookies with `SameSite=Lax`.
+
+Can also accept the refresh token from cookies if present. Returns 401 if the refresh token is invalid or revoked.
+
+### Logout
+
+```http
+POST /auth/logout
+Content-Type: application/json
+
+{
+  "refreshToken": "eyJhbGciOiJSUzI1NiIs..."
+}
+```
+
+**Response (200):**
+
+```json
+{
+  "message": "Logged out successfully"
+}
+```
+
+Clears `accessToken` and `refreshToken` cookies. Can accept refresh token from body or cookies. Returns 200 regardless of whether a refresh token was provided.
 
 ### Get Current User
 

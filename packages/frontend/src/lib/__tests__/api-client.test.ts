@@ -68,7 +68,11 @@ describe('ApiClient', () => {
       fetchMock.mockResolvedValueOnce({
         ok: false,
         status: 401,
-        json: () => Promise.resolve({ error: 'Invalid credentials' }),
+        json: () =>
+          Promise.resolve({
+            error: 'Unauthorized',
+            message: 'Invalid email or password',
+          }),
       });
 
       await expect(
@@ -76,7 +80,11 @@ describe('ApiClient', () => {
           email: 'test@example.com',
           password: 'wrong-password',
         })
-      ).rejects.toThrow(ApiError);
+      ).rejects.toMatchObject({
+        name: 'ApiError',
+        statusCode: 401,
+        message: 'Unauthorized',
+      });
     });
   });
 

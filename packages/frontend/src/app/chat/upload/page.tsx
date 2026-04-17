@@ -4,6 +4,7 @@ import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState
 import { useRouter } from 'next/navigation';
 import { apiClient, ChatHistorySession } from '../../../lib/api-client';
 import { apiFetch } from '../../../lib/api/client';
+import { getLoginRedirectPathForCurrentLocation } from '../../../lib/auth-redirect';
 import { useChatStream } from '../../../lib/useChatStream';
 
 interface ChatMessage {
@@ -330,7 +331,7 @@ export default function ChatPage() {
         const response = await apiClient.getCurrentUser();
         setUser(response.user);
       } catch {
-        router.push('/login');
+        router.replace(getLoginRedirectPathForCurrentLocation());
       }
     }
 

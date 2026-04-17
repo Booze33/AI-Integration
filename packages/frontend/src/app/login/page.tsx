@@ -2,9 +2,10 @@
 
 import { useState, FormEvent } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import AuthPageShell from '../../components/auth/AuthPageShell';
-import { apiClient, LoginRequest } from '../../lib/api-client';
+import { apiClient, ApiError, LoginRequest } from '../../lib/api-client';
+import { resolvePostLoginRedirect } from '../../lib/auth-redirect';
 
 interface LoginFormData {
   email: string;
@@ -13,6 +14,7 @@ interface LoginFormData {
 
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [formData, setFormData] = useState<LoginFormData>({
     email: '',
     password: '',
@@ -55,9 +57,13 @@ export default function LoginPage() {
       };
 
       await apiClient.login(credentials);
-      router.push('/dashboard');
+      router.replace(resolvePostLoginRedirect(searchParams.get('redirect')));
     } catch (error) {
-      setApiError(error instanceof Error ? error.message : 'An error occurred');
+      if (error instanceof ApiError && error.statusCode === 401) {
+        setApiError('Invalid email or password');
+      } else {
+        setApiError(error instanceof Error ? error.message : 'An error occurred');
+      }
     } finally {
       setIsLoading(false);
     }

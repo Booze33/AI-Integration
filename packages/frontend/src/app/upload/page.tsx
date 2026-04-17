@@ -4,6 +4,7 @@ import { useState, useCallback, useRef, DragEvent, ChangeEvent, useEffect, useMe
 import { useRouter } from 'next/navigation';
 import { Upload, CheckCircle, XCircle, Clock, AlertCircle } from 'lucide-react';
 import { apiClient } from '../../lib/api-client';
+import { getLoginRedirectPathForCurrentLocation } from '../../lib/auth-redirect';
 
 interface UserInfo {
   id: string;
@@ -195,7 +196,7 @@ export default function UploadPage() {
         const response = await apiClient.getCurrentUser();
         setUser(response.user);
       } catch {
-        router.push('/login');
+        router.replace(getLoginRedirectPathForCurrentLocation());
       } finally {
         setLoading(false);
       }

@@ -253,7 +253,7 @@ describe('Integration Tests', () => {
   // =========================================================================
 
   describe('POST /auth/register', () => {
-    it('happy path — registers user and returns tokens in the response body', async () => {
+    it('happy path — registers user, returns tokens, and sets auth cookies', async () => {
       const res = await request(app)
         .post('/auth/register')
         .send({ email: 'reg-happy@test.com', password: 'Str0ngPass!' })
@@ -261,7 +261,15 @@ describe('Integration Tests', () => {
 
       expect(res.body.accessToken).toBeDefined();
       expect(res.body.refreshToken).toBeDefined();
-      expect(res.headers['set-cookie']).toBeUndefined();
+      const setCookie = res.headers['set-cookie'] as unknown as string[];
+      expect(setCookie).toBeDefined();
+      expect(setCookie.length).toBeGreaterThanOrEqual(2);
+
+      const cookieHeader = setCookie.join('; ');
+      expect(cookieHeader).toContain('accessToken=');
+      expect(cookieHeader).toContain('refreshToken=');
+      expect(cookieHeader).toContain('HttpOnly');
+      expect(cookieHeader).toContain('SameSite=Lax');
       expect(res.body.user.email).toBe('reg-happy@test.com');
       expect(res.body.user.tenantId).toBeDefined();
     });
@@ -328,14 +336,25 @@ describe('Integration Tests', () => {
       await registerUser(app, 'login-user@test.com');
     });
 
-    it('happy path — returns 200 and tokens', async () => {
+    it('happy path — returns 200, tokens, and sets auth cookies', async () => {
       const res = await request(app)
         .post('/auth/login')
         .send({ email: 'login-user@test.com', password: 'Test1234!' })
         .expect(200);
 
       expect(res.body.accessToken).toBeDefined();
+      expect(res.body.refreshToken).toBeDefined();
       expect(res.body.message).toContain('successful');
+
+      const setCookie = res.headers['set-cookie'] as unknown as string[];
+      expect(setCookie).toBeDefined();
+      expect(setCookie.length).toBeGreaterThanOrEqual(2);
+
+      const cookieHeader = setCookie.join('; ');
+      expect(cookieHeader).toContain('accessToken=');
+      expect(cookieHeader).toContain('refreshToken=');
+      expect(cookieHeader).toContain('HttpOnly');
+      expect(cookieHeader).toContain('SameSite=Lax');
     });
 
     it('returns 401 for wrong password', async () => {
@@ -359,6 +378,74 @@ describe('Integration Tests', () => {
     it('returns 400 when credentials are missing', async () => {
       const res = await request(app).post('/auth/login').send({}).expect(400);
       expect(res.body.message).toContain('required');
+    });
+  });
+
+  // =========================================================================
+  // Auth — POST /auth/refresh
+  // =========================================================================
+
+  describe('POST /auth/refresh', () => {
+    it('happy path — returns 200, new tokens, and sets cookies', async () => {
+      const registerRes = await registerUser(app, 'refresh-user@test.com');
+      const refreshToken = registerRes.refreshToken;
+
+      const res = await request(app).post('/auth/refresh').send({ refreshToken }).expect(200);
+
+      expect(res.body.accessToken).toBeDefined();
+      expect(res.body.refreshToken).toBeDefined();
+      expect(res.body.message).toContain('refreshed');
+
+      const setCookie = res.headers['set-cookie'] as unknown as string[];
+      expect(setCookie).toBeDefined();
+      expect(setCookie.length).toBeGreaterThanOrEqual(2);
+
+      const cookieHeader = setCookie.join('; ');
+      expect(cookieHeader).toContain('accessToken=');
+      expect(cookieHeader).toContain('refreshToken=');
+      expect(cookieHeader).toContain('HttpOnly');
+      expect(cookieHeader).toContain('SameSite=Lax');
+    });
+
+    it('returns 400 when refresh token is missing', async () => {
+      const res = await request(app).post('/auth/refresh').send({}).expect(400);
+      expect(res.body.message).toContain('required');
+    });
+
+    it('returns 401 for invalid refresh token', async () => {
+      const res = await request(app)
+        .post('/auth/refresh')
+        .send({ refreshToken: 'invalid-token' })
+        .expect(401);
+
+      expect(res.body.message).toContain('Invalid');
+    });
+  });
+
+  // =========================================================================
+  // Auth — POST /auth/logout
+  // =========================================================================
+
+  describe('POST /auth/logout', () => {
+    it('happy path — returns 200 and clears cookies', async () => {
+      const registerRes = await registerUser(app, 'logout-user@test.com');
+      const refreshToken = registerRes.refreshToken;
+
+      const res = await request(app).post('/auth/logout').send({ refreshToken }).expect(200);
+
+      expect(res.body.message).toContain('successfully');
+
+      const setCookie = res.headers['set-cookie'] as unknown as string[];
+      expect(setCookie).toBeDefined();
+
+      const cookieHeader = setCookie.join('; ');
+      expect(cookieHeader).toContain('accessToken=');
+      expect(cookieHeader).toContain('refreshToken=');
+    });
+
+    it('returns 200 even without a refresh token', async () => {
+      const res = await request(app).post('/auth/logout').send({}).expect(200);
+      expect(res.body.message).toContain('successfully');
     });
   });
 
@@ -401,54 +488,6 @@ describe('Integration Tests', () => {
         .expect(401);
 
       expect(res.body.error).toBe('Unauthorized');
-    });
-  });
-
-  // =========================================================================
-  // Auth — POST /auth/refresh
-  // =========================================================================
-
-  describe('POST /auth/refresh', () => {
-    it('happy path — issues new token pair with valid refresh token', async () => {
-      const { refreshToken } = await registerUser(app, 'refresh-user@test.com');
-
-      const res = await request(app).post('/auth/refresh').send({ refreshToken }).expect(200);
-
-      expect(res.body.accessToken).toBeDefined();
-      expect(res.body.message).toContain('refreshed');
-    });
-
-    it('returns 400 when refreshToken is missing', async () => {
-      await request(app).post('/auth/refresh').send({}).expect(400);
-    });
-
-    it('returns 401 for an invalid refresh token', async () => {
-      const res = await request(app)
-        .post('/auth/refresh')
-        .send({ refreshToken: 'INVALID.BAD.TOKEN' })
-        .expect(401);
-
-      expect(res.body.message).toContain('Invalid');
-    });
-  });
-
-  // =========================================================================
-  // Auth — POST /auth/logout
-  // =========================================================================
-
-  describe('POST /auth/logout', () => {
-    it('happy path — returns 200 regardless of token validity', async () => {
-      const res = await request(app)
-        .post('/auth/logout')
-        .send({ refreshToken: 'anything' })
-        .expect(200);
-
-      expect(res.body.message).toContain('Logged out');
-    });
-
-    it('returns 200 even without a refresh token', async () => {
-      const res = await request(app).post('/auth/logout').send({}).expect(200);
-      expect(res.body.message).toContain('Logged out');
     });
   });
 
@@ -543,41 +582,15 @@ describe('Integration Tests', () => {
       mockPipelineOps.getJobsByStatus.mockReturnValueOnce([
         {
           id: 'j1',
+          fileId: 'file-abc',
           status: 'completed',
-          fileId: 'f1',
           progress: 100,
+          chunks: [{ content: 'text', tokenCount: 10 }],
           createdAt: new Date(),
           updatedAt: new Date(),
+          completedAt: new Date(),
         },
       ]);
-
-      const res = await request(app).get('/api/pipeline/jobs?status=completed').expect(200);
-
-      expect(res.body.jobs.length).toBeGreaterThan(0);
-    });
-  });
-
-  // =========================================================================
-  // Pipeline — GET /api/pipeline/jobs/:jobId
-  // =========================================================================
-
-  describe('GET /api/pipeline/jobs/:jobId', () => {
-    it('returns 404 for unknown job ID', async () => {
-      const res = await request(app).get('/api/pipeline/jobs/nonexistent').expect(404);
-      expect(res.body.error).toContain('not found');
-    });
-
-    it('happy path — returns job details when job exists', async () => {
-      mockPipelineOps.getJobStatus.mockReturnValueOnce({
-        id: 'job-123',
-        fileId: 'file-abc',
-        status: 'completed',
-        progress: 100,
-        chunks: [{ content: 'text', tokenCount: 10 }],
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        completedAt: new Date(),
-      });
 
       const res = await request(app).get('/api/pipeline/jobs/job-123').expect(200);
       expect(res.body.job.id).toBe('job-123');

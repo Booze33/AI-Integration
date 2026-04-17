@@ -19,7 +19,7 @@ function parseCookies(cookieHeader: string | undefined): Record<string, string> 
   return cookies;
 }
 
-function setTokenCookies(res: Response, accessToken: string, refreshToken: string): void {
+export function setTokenCookies(res: Response, accessToken: string, refreshToken: string): void {
   const cookieOptions = {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',

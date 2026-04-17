@@ -3,6 +3,7 @@
 import { CSSProperties, useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { apiClient, DashboardStats } from '../../lib/api-client';
+import { getLoginRedirectPathForCurrentLocation } from '../../lib/auth-redirect';
 import { getCachedDashboardStats, setCachedDashboardStats } from '../../lib/dashboard-store';
 
 interface User {
@@ -25,7 +26,7 @@ export default function DashboardPage() {
         const response = await apiClient.getCurrentUser();
         setUser(response.user);
       } catch {
-        router.push('/login');
+        router.replace(getLoginRedirectPathForCurrentLocation());
       } finally {
         setLoading(false);
       }
