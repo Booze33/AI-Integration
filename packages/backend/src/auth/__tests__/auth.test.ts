@@ -106,6 +106,26 @@ beforeAll(() => {
   app.get('/combined', ...authenticateWithTenant(), (req: AuthenticatedRequest, res) => {
     res.json({ user: req.user, tenantId: req.tenantId });
   });
+
+  app.get(
+    '/tenant-resource/:tenantId',
+    ...authenticateWithTenant(),
+    (req: AuthenticatedRequest, res) => {
+      const requestedTenantId = req.params.tenantId;
+      if (req.tenantId !== requestedTenantId) {
+        res.status(403).json({
+          error: 'Forbidden',
+          message: 'Cross-tenant access denied',
+        });
+        return;
+      }
+
+      res.json({
+        tenantId: requestedTenantId,
+        message: 'Tenant-scoped resource access granted',
+      });
+    }
+  );
 });
 
 describe('Auth Integration Tests', () => {
@@ -436,6 +456,31 @@ describe('Auth Integration Tests', () => {
 
       expect(response.status).toBe(401);
       expect(response.body.error).toBe('Unauthorized');
+    });
+  });
+
+  // ========================================================================
+  // 5. TENANT ISOLATION
+  // ========================================================================
+  describe('Tenant Isolation', () => {
+    it("should reject tenant B resource access with tenant A's token", async () => {
+      const loginRes = await request(app).post('/auth/login').send({
+        email: 'test@example.com',
+        password: 'password123',
+        role: 'viewer',
+        tenantId: 'tenant-a',
+      });
+
+      const { accessToken } = loginRes.body;
+
+      const response = await request(app)
+        .get('/tenant-resource/tenant-b')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .set('x-tenant-id', 'tenant-b');
+
+      expect(response.status).toBe(403);
+      expect(response.body.error).toBe('Forbidden');
+      expect(response.body.message).toContain('Cross-tenant access denied');
     });
   });
 

@@ -1,10 +1,9 @@
 import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import { Pool } from 'pg';
-import { randomUUID } from 'crypto';
-import { TenantDatabase, TenantOperations } from '../database/tenant-context';
+import { TenantDatabase } from '../database/tenant-context';
 import { generateTokenPair, verifyToken, TokenPayload, DecodedRefreshToken } from './jwt';
-import { authenticate, AuthenticatedRequest } from './middleware';
+import { authenticate, AuthenticatedRequest, setTokenCookies } from './middleware';
 import {
   storeRefreshToken,
   verifyRefreshToken,
@@ -159,38 +158,13 @@ async function assignRoleToUser(tenantId: string, userId: string, role: string):
   });
 }
 
-function buildTenantName(email: string): string {
-  const localPart = email.split('@')[0] || 'workspace';
-  const normalized = localPart.replace(/[._-]+/g, ' ').trim();
-  const label = normalized.length > 0 ? normalized : 'workspace';
-  return `${label.charAt(0).toUpperCase()}${label.slice(1)} Workspace`;
-}
-
-function buildTenantSlug(email: string): string {
-  const localPart = email.split('@')[0] || 'workspace';
-  const baseSlug = localPart
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 32);
-  const suffix = randomUUID().slice(0, 8);
-
-  return `${baseSlug || 'workspace'}-${suffix}`;
-}
-
-async function ensureRegistrationTenant(email: string, tenantId?: string | null): Promise<string> {
+async function ensureRegistrationTenant(tenantId?: string | null): Promise<string> {
   if (tenantId) {
     return tenantId;
   }
 
-  const tenantOps = new TenantOperations(getTenantDb());
-  const tenant = await tenantOps.createTenant({
-    name: buildTenantName(email),
-    slug: buildTenantSlug(email),
-    plan: 'free',
-  });
-
-  return tenant.id;
+  // Registration falls back to the shared default tenant when tenant is omitted.
+  return DEFAULT_TENANT_ID;
 }
 
 function isValidEmailAddress(value: unknown): value is string {
@@ -242,7 +216,7 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    const tenantId = await ensureRegistrationTenant(email, requestedTenantId);
+    const tenantId = await ensureRegistrationTenant(requestedTenantId);
 
     const salt = await bcrypt.genSalt(12);
     const passwordHash = await bcrypt.hash(sanitizedPassword, salt);
@@ -272,6 +246,8 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
 
     const { accessToken, refreshToken, tokenId } = generateTokenPair(payload);
     await storeRefreshToken(user.id, tokenId, 7 * 24 * 60 * 60);
+
+    setTokenCookies(res, accessToken, refreshToken);
 
     res.status(201).json({
       message: 'User registered successfully',
@@ -341,6 +317,8 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
 
     const { accessToken, refreshToken, tokenId } = generateTokenPair(payload);
     await storeRefreshToken(user.id, tokenId, 7 * 24 * 60 * 60);
+
+    setTokenCookies(res, accessToken, refreshToken);
 
     res.json({
       message: 'Login successful',
@@ -433,6 +411,8 @@ router.post('/refresh', async (req: Request, res: Response): Promise<void> => {
     await revokeRefreshToken(decoded.tokenId);
     await storeRefreshToken(decoded.userId, newTokenId, 7 * 24 * 60 * 60);
 
+    setTokenCookies(res, accessToken, newRefreshToken);
+
     res.json({
       message: 'Tokens refreshed successfully',
       user: {
@@ -522,6 +502,9 @@ router.post('/logout', async (req: Request, res: Response): Promise<void> => {
         // Token invalid, but still return success
       }
     }
+
+    res.clearCookie('accessToken', { path: '/' });
+    res.clearCookie('refreshToken', { path: '/' });
 
     res.json({
       message: 'Logged out successfully',

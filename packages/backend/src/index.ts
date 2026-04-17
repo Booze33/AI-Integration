@@ -7,6 +7,7 @@ import { setupOptimizedDatabase } from './database';
 import { createDiagnosticsRouter } from './database/diagnostics';
 import { runMigrations } from './database/migrate';
 import { authRoutes, setAuthPool } from './auth';
+import { validateJwtKeys } from './auth/jwt';
 import { createChatRoutes } from './chat';
 import { registerChatWebSocket } from './chat/websocket';
 import { pipelineRoutes } from './pipeline';
@@ -31,6 +32,9 @@ import {
 // ---------------------------------------------------------------------------
 const env = validateEnv();
 printEnvConfig();
+
+// Validate JWT keys are present before accepting any requests
+validateJwtKeys();
 
 const app = express();
 let sharedPool: Pool | null = null;

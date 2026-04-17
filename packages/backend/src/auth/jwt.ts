@@ -85,6 +85,15 @@ function getPublicKey(): string {
 }
 
 /**
+ * Eagerly validate that both keys are loadable. Call this at startup so
+ * missing keys fail immediately rather than on the first request.
+ */
+export function validateJwtKeys(): void {
+  getPrivateKey();
+  getPublicKey();
+}
+
+/**
  * Generate access token (short-lived)
  */
 export function generateAccessToken(payload: TokenPayload): string {

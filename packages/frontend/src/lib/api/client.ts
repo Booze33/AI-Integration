@@ -1,4 +1,5 @@
 import { appConfig } from '../config';
+import { getLoginRedirectPathForCurrentLocation } from '../auth-redirect';
 
 const REQUEST_ID_HEADER = 'X-Request-ID';
 const RESPONSE_REQUEST_ID_HEADERS = ['x-request-id', 'x-correlation-id'];
@@ -97,7 +98,7 @@ function clearLocalAuthState() {
 function redirectToLogin() {
   if (typeof window === 'undefined') return;
   if (window.location.pathname !== '/login') {
-    window.location.assign('/login');
+    window.location.assign(getLoginRedirectPathForCurrentLocation());
   }
 }
 
