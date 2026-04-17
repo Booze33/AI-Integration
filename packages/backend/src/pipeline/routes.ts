@@ -11,6 +11,7 @@
  */
 
 import { Router as ExpressRouter, Request, Response } from 'express';
+import multer from 'multer';
 import { authenticate, requireViewer } from '../auth/middleware';
 import { getPipelineService } from './singleton';
 import { TextChunk } from './types';
@@ -19,6 +20,28 @@ const router: ExpressRouter = ExpressRouter();
 
 // Create pipeline service instance
 const pipelineService = getPipelineService();
+
+const uploadSingle = (req: Request, res: Response, next: (error?: unknown) => void): void => {
+  pipelineService.getUploadMiddleware().single('file')(req, res, (error: any) => {
+    if (!error) {
+      next();
+      return;
+    }
+
+    if (error instanceof multer.MulterError && error.code === 'LIMIT_FILE_SIZE') {
+      res.status(400).json({
+        error: 'Invalid file upload',
+        message: 'File exceeds the maximum allowed size',
+      });
+      return;
+    }
+
+    res.status(400).json({
+      error: 'Invalid file upload',
+      message: error instanceof Error ? error.message : 'File upload failed',
+    });
+  });
+};
 
 /**
  * POST /upload
@@ -30,7 +53,7 @@ router.post(
   '/upload',
   authenticate as any,
   requireViewer as any,
-  pipelineService.getUploadMiddleware().single('file'),
+  uploadSingle,
   async (req: Request, res: Response) => {
     try {
       if (!req.file) {
@@ -104,7 +127,7 @@ router.post(
   '/upload/async',
   authenticate as any,
   requireViewer as any,
-  pipelineService.getUploadMiddleware().single('file'),
+  uploadSingle,
   async (req: Request, res: Response) => {
     try {
       await pipelineService.ensureQueueReady();
@@ -174,6 +197,7 @@ router.get(
       job: {
         id: job.id,
         fileId: job.fileId,
+        originalName: job.originalName,
         status: job.status,
         progress: job.progress,
         chunks: job.chunks
@@ -222,6 +246,7 @@ router.get('/jobs', authenticate as any, requireViewer as any, (req: Request, re
     jobs: jobs.map((job) => ({
       id: job.id,
       fileId: job.fileId,
+      originalName: job.originalName,
       status: job.status,
       progress: job.progress,
       chunks: job.chunks

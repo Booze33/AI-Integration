@@ -56,6 +56,7 @@ export type JobStatus =
 export interface PipelineJob {
   id: string;
   fileId: string;
+  originalName?: string;
   status: JobStatus;
   progress: number;
   chunks?: TextChunk[];
@@ -84,6 +85,7 @@ export interface QueueJobData {
   jobId: string;
   fileId: string;
   filePath: string;
+  originalName?: string;
   mimeType: string;
   options: PipelineOptions;
   originalJobId?: string;

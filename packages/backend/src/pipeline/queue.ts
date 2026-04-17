@@ -366,6 +366,7 @@ export class QueueService {
   async addJob(
     fileId: string,
     filePath: string,
+    originalName: string,
     mimeType: string,
     options: {
       chunkSize?: number;
@@ -379,6 +380,7 @@ export class QueueService {
     const jobData: PipelineJob = {
       id: jobId,
       fileId,
+      originalName,
       status: 'pending',
       progress: 0,
       createdAt: new Date(),
@@ -391,6 +393,7 @@ export class QueueService {
       jobId,
       fileId,
       filePath,
+      originalName,
       mimeType,
       options: {
         chunkSize: options.chunkSize,

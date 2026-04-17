@@ -141,6 +141,7 @@ const mockPipelineOps = vi.hoisted(() => ({
     chunks: [{ content: 'hello', tokenCount: 5 }],
   }),
   processFileAsync: vi.fn().mockResolvedValue({ id: 'job-1', status: 'queued' }),
+  ensureQueueReady: vi.fn().mockResolvedValue(undefined),
   getJobStatus: vi.fn().mockReturnValue(null),
   getAllJobs: vi.fn().mockReturnValue([]),
   getJobsByStatus: vi.fn().mockReturnValue([]),
@@ -203,6 +204,18 @@ async function registerUser(app: express.Application, email: string, password = 
     refreshToken: string;
     user: { tenantId?: string };
   };
+}
+
+function makeAuthHeader(overrides: Record<string, unknown> = {}): string {
+  const payload = {
+    userId: 'u-test',
+    email: 'viewer@test.com',
+    role: 'viewer',
+    tenantId: 'tenant-test',
+    ...overrides,
+  };
+
+  return `Bearer MOCK.${Buffer.from(JSON.stringify(payload)).toString('base64')}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -571,9 +584,24 @@ describe('Integration Tests', () => {
   // Pipeline — GET /api/pipeline/jobs
   // =========================================================================
 
+  describe('Pipeline auth', () => {
+    it('returns 401 for GET /api/pipeline/jobs when Authorization header is missing', async () => {
+      const res = await request(app).get('/api/pipeline/jobs').expect(401);
+      expect(res.body.error).toBe('Unauthorized');
+    });
+
+    it('returns 401 for POST /api/pipeline/upload when Authorization header is missing', async () => {
+      const res = await request(app).post('/api/pipeline/upload').expect(401);
+      expect(res.body.error).toBe('Unauthorized');
+    });
+  });
+
   describe('GET /api/pipeline/jobs', () => {
     it('happy path — returns empty jobs list', async () => {
-      const res = await request(app).get('/api/pipeline/jobs').expect(200);
+      const res = await request(app)
+        .get('/api/pipeline/jobs')
+        .set('Authorization', makeAuthHeader())
+        .expect(200);
       expect(res.body.success).toBe(true);
       expect(res.body.jobs).toEqual([]);
     });
@@ -592,7 +620,10 @@ describe('Integration Tests', () => {
         },
       ]);
 
-      const res = await request(app).get('/api/pipeline/jobs/job-123').expect(200);
+      const res = await request(app)
+        .get('/api/pipeline/jobs/job-123')
+        .set('Authorization', makeAuthHeader())
+        .expect(200);
       expect(res.body.job.id).toBe('job-123');
       expect(res.body.job.status).toBe('completed');
     });
@@ -604,7 +635,10 @@ describe('Integration Tests', () => {
 
   describe('GET /api/pipeline/stats', () => {
     it('happy path — returns queue statistics', async () => {
-      const res = await request(app).get('/api/pipeline/stats').expect(200);
+      const res = await request(app)
+        .get('/api/pipeline/stats')
+        .set('Authorization', makeAuthHeader())
+        .expect(200);
       expect(res.body.success).toBe(true);
       expect(res.body.stats).toBeDefined();
     });
@@ -612,7 +646,10 @@ describe('Integration Tests', () => {
     it('DB/service error — returns 500 when getQueueStats throws', async () => {
       mockPipelineOps.getQueueStats.mockRejectedValueOnce(new Error('Redis connection lost'));
 
-      const res = await request(app).get('/api/pipeline/stats').expect(500);
+      const res = await request(app)
+        .get('/api/pipeline/stats')
+        .set('Authorization', makeAuthHeader())
+        .expect(500);
       expect(res.body.error).toBeDefined();
     });
   });
@@ -624,14 +661,20 @@ describe('Integration Tests', () => {
 
   describe('POST /api/pipeline/upload', () => {
     it('returns 400 when no file is attached', async () => {
-      const res = await request(app).post('/api/pipeline/upload').expect(400);
+      const res = await request(app)
+        .post('/api/pipeline/upload')
+        .set('Authorization', makeAuthHeader())
+        .expect(400);
       expect(res.body.error).toContain('No file');
     });
   });
 
   describe('POST /api/pipeline/upload/async', () => {
     it('returns 400 when no file is attached', async () => {
-      const res = await request(app).post('/api/pipeline/upload/async').expect(400);
+      const res = await request(app)
+        .post('/api/pipeline/upload/async')
+        .set('Authorization', makeAuthHeader())
+        .expect(400);
       expect(res.body.error).toContain('No file');
     });
   });
@@ -642,7 +685,10 @@ describe('Integration Tests', () => {
 
   describe('DELETE /api/pipeline/jobs/:jobId', () => {
     it('returns 404 for unknown job', async () => {
-      const res = await request(app).delete('/api/pipeline/jobs/ghost').expect(404);
+      const res = await request(app)
+        .delete('/api/pipeline/jobs/ghost')
+        .set('Authorization', makeAuthHeader())
+        .expect(404);
       expect(res.body.error).toContain('not found');
     });
 
@@ -656,7 +702,10 @@ describe('Integration Tests', () => {
         updatedAt: new Date(),
       });
 
-      const res = await request(app).delete('/api/pipeline/jobs/del-job').expect(200);
+      const res = await request(app)
+        .delete('/api/pipeline/jobs/del-job')
+        .set('Authorization', makeAuthHeader())
+        .expect(200);
       expect(res.body.success).toBe(true);
     });
   });

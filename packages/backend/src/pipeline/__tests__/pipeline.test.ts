@@ -7,6 +7,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import request from 'supertest';
 import express from 'express';
+import multer from 'multer';
 import { pipelineRoutes } from '../routes';
 
 vi.mock('../../auth/middleware', () => ({
@@ -19,30 +20,50 @@ vi.mock('../pipeline', () => ({
   createPipelineService: vi.fn(() => ({
     getUploadMiddleware: vi.fn(() => ({
       single: vi.fn(() => (req: any, res: any, next: any) => {
+        if (req.headers['x-test-file-type'] === 'oversize') {
+          next(new multer.MulterError('LIMIT_FILE_SIZE'));
+          return;
+        }
+
+        if (req.headers['x-test-file-type'] === 'invalid') {
+          next(
+            new Error(
+              'Invalid file type: text/plain. Allowed types: application/pdf, application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+            )
+          );
+          return;
+        }
+
         // Check if file was attached by looking at content-type header
         if (req.headers['content-type']?.includes('multipart/form-data')) {
+          const isDocx = req.headers['x-test-file-type'] === 'docx';
+          const mimeType = isDocx
+            ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+            : 'application/pdf';
+          const extension = isDocx ? 'docx' : 'pdf';
+
           // Simulate file upload only if content-type is multipart
           req.file = {
             fieldname: 'file',
-            originalname: 'test.pdf',
+            originalname: `test.${extension}`,
             encoding: '7bit',
-            mimetype: 'application/pdf',
+            mimetype: mimeType,
             destination: './uploads',
-            filename: 'test-file-id.pdf',
-            path: './uploads/test-file-id.pdf',
+            filename: `test-file-id.${extension}`,
+            path: `./uploads/test-file-id.${extension}`,
             size: 1024,
           };
         }
         next();
       }),
     })),
-    processFileSync: vi.fn(async () => ({
+    processFileSync: vi.fn(async (file: any) => ({
       uploadedFile: {
         id: 'test-file-id',
-        originalName: 'test.pdf',
-        mimeType: 'application/pdf',
+        originalName: file.originalname,
+        mimeType: file.mimetype,
         size: 1024,
-        path: './uploads/test-file-id.pdf',
+        path: file.path,
         uploadedAt: new Date(),
       },
       extraction: {
@@ -66,6 +87,7 @@ vi.mock('../pipeline', () => ({
     processFileAsync: vi.fn(async () => ({
       id: 'job-test-file-id',
       fileId: 'test-file-id',
+      originalName: 'test.pdf',
       status: 'pending',
       progress: 0,
       createdAt: new Date(),
@@ -76,6 +98,7 @@ vi.mock('../pipeline', () => ({
         return {
           id: 'job-test-file-id',
           fileId: 'test-file-id',
+          originalName: 'test.pdf',
           status: 'completed',
           progress: 100,
           chunks: [
@@ -100,6 +123,7 @@ vi.mock('../pipeline', () => ({
       {
         id: 'job-test-file-id',
         fileId: 'test-file-id',
+        originalName: 'test.pdf',
         status: 'completed',
         progress: 100,
         chunks: [
@@ -124,6 +148,7 @@ vi.mock('../pipeline', () => ({
           {
             id: 'job-test-file-id',
             fileId: 'test-file-id',
+            originalName: 'test.pdf',
             status: 'completed',
             progress: 100,
             chunks: [
@@ -152,6 +177,7 @@ vi.mock('../pipeline', () => ({
       failed: 0,
       delayed: 0,
     })),
+    ensureQueueReady: vi.fn(async () => undefined),
   })),
 }));
 
@@ -192,6 +218,64 @@ describe('Pipeline Routes', () => {
           chunkTexts: expect.any(Array),
         })
       );
+    });
+
+    it('should upload DOCX and return extraction and chunk metadata', async () => {
+      const response = await request(app)
+        .post('/api/pipeline/upload')
+        .set('x-test-file-type', 'docx')
+        .attach('file', Buffer.from('test docx content'), 'test.docx')
+        .expect(200);
+
+      expect(response.body).toEqual(
+        expect.objectContaining({
+          success: true,
+          file: {
+            id: expect.any(String),
+            originalName: 'test.docx',
+            mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            size: expect.any(Number),
+          },
+          extraction: {
+            textLength: expect.any(Number),
+            pageCount: expect.any(Number),
+          },
+          chunks: {
+            count: expect.any(Number),
+            totalTokens: expect.any(Number),
+          },
+          chunkPreviews: expect.any(Array),
+          chunkTexts: expect.any(Array),
+        })
+      );
+    });
+
+    it('should return 400 with clear error for invalid file type', async () => {
+      const response = await request(app)
+        .post('/api/pipeline/upload')
+        .set('x-test-file-type', 'invalid')
+        .attach('file', Buffer.from('plain text content'), 'test.txt')
+        .expect(400);
+
+      expect(response.body).toEqual(
+        expect.objectContaining({
+          error: 'Invalid file upload',
+          message: expect.stringContaining('Invalid file type'),
+        })
+      );
+    });
+
+    it('should return 400 if uploaded file exceeds size limit', async () => {
+      const response = await request(app)
+        .post('/api/pipeline/upload')
+        .set('x-test-file-type', 'oversize')
+        .attach('file', Buffer.from('x'), 'big.pdf')
+        .expect(400);
+
+      expect(response.body).toEqual({
+        error: 'Invalid file upload',
+        message: 'File exceeds the maximum allowed size',
+      });
     });
 
     it('should return 400 if no file uploaded', async () => {
@@ -251,23 +335,27 @@ describe('Pipeline Routes', () => {
     it('should return job status', async () => {
       const response = await request(app).get('/api/pipeline/jobs/job-test-file-id').expect(200);
 
-      expect(response.body).toEqual({
-        success: true,
-        job: {
-          id: 'job-test-file-id',
-          fileId: 'test-file-id',
-          status: 'completed',
-          progress: 100,
-          chunks: {
-            count: 1,
-            totalTokens: 11,
-          },
-          error: undefined,
-          createdAt: expect.any(String),
-          updatedAt: expect.any(String),
-          completedAt: expect.any(String),
-        },
-      });
+      expect(response.body).toEqual(
+        expect.objectContaining({
+          success: true,
+          job: expect.objectContaining({
+            id: 'job-test-file-id',
+            fileId: 'test-file-id',
+            originalName: 'test.pdf',
+            status: 'completed',
+            progress: 100,
+            chunks: {
+              count: 1,
+              totalTokens: 11,
+            },
+            chunkPreviews: expect.any(Array),
+            chunkTexts: expect.any(Array),
+            createdAt: expect.any(String),
+            updatedAt: expect.any(String),
+            completedAt: expect.any(String),
+          }),
+        })
+      );
     });
 
     it('should return 404 for unknown job', async () => {
@@ -289,6 +377,7 @@ describe('Pipeline Routes', () => {
         jobs: expect.arrayContaining([
           expect.objectContaining({
             id: 'job-test-file-id',
+            originalName: 'test.pdf',
             status: 'completed',
           }),
         ]),

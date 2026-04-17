@@ -95,6 +95,7 @@ export class PipelineService {
     const job = await this.queueService.addJob(
       uploadedFile.id,
       uploadedFile.path,
+      uploadedFile.originalName,
       uploadedFile.mimeType,
       {
         chunkSize: options.chunkSize,
