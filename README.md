@@ -1,325 +1,353 @@
-# AI Integration Platform
+# AI Integration
 
-A comprehensive, multi-tenant AI integration platform with secure API key management, real-time chat, voice input, and file processing capabilities.
+Single-repo starter for building multi-tenant AI products with:
 
-## Features
+- Express backend with modular provider adapters (OpenAI, Anthropic, Deepgram, ElevenLabs)
+- Next.js frontend with chat, upload, and voice UX flows
+- Streaming responses over SSE and WebSocket
+- JWT auth (RS256), refresh-token rotation, role guards
+- Redis-backed rate limiting and webhook job queueing
+- Docker Compose for local Postgres + Redis
 
-### 🔐 **Security & Authentication**
+This README is the one setup document developers should follow before running the project.
 
-- JWT-based authentication with RS256 signing
-- Refresh token rotation
-- Multi-tenant architecture with Row Level Security
-- AES-256 encrypted API key storage
-- Role-based access control (admin, owner, member, viewer)
+## 1) Prerequisites
 
-### 🤖 **AI Provider Integration**
+Install these first:
 
-- Support for 10+ AI providers (OpenAI, Anthropic, Deepgram, ElevenLabs, etc.)
-- Encrypted API key management
-- Provider-specific configuration
-- Automatic failover and load balancing
+- Node.js 20.19.0 (minimum)
+- pnpm 10+
+- Docker Desktop (or Docker Engine + Compose plugin)
+- Git
 
-### 💬 **Real-time Chat**
+Why this exact Node floor:
 
-- Streaming AI responses
-- Voice input with speech-to-text
-- Chat history persistence
-- Session management with Redis
+- This repo uses ESLint 10 packages that require Node `^20.19.0` (or newer major lines).
+- If your Node version is below 20.19.0, lint/dev scripts can fail even if app code compiles.
 
-### 📁 **File Processing Pipeline**
+Make sure these ports are free:
 
-- Multi-format file upload (PDF, DOCX, images, audio)
-- Asynchronous processing with job tracking
-- Text extraction and analysis
-- Progress monitoring
+- `3000` (frontend)
+- `3001` (backend)
+- `5433` (Postgres from Docker)
+- `6379` (Redis from Docker)
 
-### 🚀 **Developer Experience**
+Important local DB note:
 
-- TypeScript throughout
-- Comprehensive API client with auto-refresh
-- Unit and integration tests
-- Full API documentation
-- Docker support
+- Docker Postgres in this repo runs on `5433`, not `5432`.
+- If you also run a host Postgres on `5432`, keep `DATABASE_URL` pointed at `5433` to avoid auth conflicts.
 
-## Quick Start
-
-### Prerequisites
-
-- Node.js 18+
-- PostgreSQL 15+
-- Redis 7+
-- Docker (optional)
-
-### Installation
-
-1. **Clone the repository**
-
-   ```bash
-   git clone <repository-url>
-   cd ai-integration-platform
-   ```
-
-2. **Install dependencies**
-
-   ```bash
-   pnpm install
-   ```
-
-3. **Set up environment variables**
-
-   ```bash
-   cp .env.example .env
-   # Edit .env with your configuration
-   ```
-
-4. **Generate RSA keys for JWT**
-
-   ```bash
-   cd packages/backend
-   pnpm run generate-keys
-   ```
-
-5. **Start services**
-
-   ```bash
-   # Start PostgreSQL and Redis (via Docker)
-   docker-compose up -d postgres redis
-
-   # Run migrations
-   cd packages/backend
-   pnpm run migrate
-
-   # Seed database (optional)
-   pnpm run seed
-
-   # Start backend
-   pnpm run dev
-
-   # Start frontend (new terminal)
-   cd ../frontend
-   pnpm run dev
-   ```
-
-6. **Access the application**
-   - Frontend: http://localhost:3000
-   - Backend API: http://localhost:3001
-   - Health check: http://localhost:3001/health
-
-## Project Structure
-
-```
-├── packages/
-│   ├── backend/              # Express.js API server
-│   │   ├── src/
-│   │   │   ├── auth/         # Authentication & JWT
-│   │   │   ├── chat/         # Chat endpoints
-│   │   │   ├── database/     # Migrations & DB utilities
-│   │   │   ├── errors/       # Error handling
-│   │   │   ├── logger/       # Request logging
-│   │   │   ├── pipeline/     # File processing
-│   │   │   ├── providers/    # AI provider management
-│   │   │   ├── rate-limit/   # Rate limiting
-│   │   │   ├── redis/        # Redis utilities
-│   │   │   └── index.ts      # Server entry point
-│   │   └── package.json
-│   └── frontend/             # Next.js application
-│       ├── src/
-│       │   ├── app/          # App router pages
-│       │   ├── components/   # React components
-│       │   ├── lib/          # Utilities & API client
-│       │   └── types/        # TypeScript types
-│       └── package.json
-├── docs/                     # Documentation
-├── docker-compose.yml        # Development services
-└── pnpm-workspace.yaml       # Workspace configuration
-```
-
-## Configuration
-
-### Environment Variables
-
-#### Backend (.env)
+## 2) Clone And Install
 
 ```bash
-# Database
-DATABASE_URL=postgresql://user:password@localhost:5432/ai_integration
+git clone <your-repo-url>
+cd AI-Integration
+pnpm install
+```
 
-# Redis
-REDIS_URL=redis://localhost:6379
+Use pnpm for workspace dependency changes:
 
-# JWT Keys (generate with pnpm run generate-keys)
-JWT_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----..."
-JWT_PUBLIC_KEY="-----BEGIN PUBLIC KEY-----..."
+```bash
+pnpm --filter backend add <package-name>
+pnpm --filter frontend add <package-name>
+```
 
-# Encryption
-TENANT_CONFIG_ENCRYPTION_KEY=your-32-char-encryption-key
+## 3) Start Local Infrastructure
 
-# Server
-PORT=3001
+Start only infrastructure services first:
+
+```bash
+docker compose up -d postgres redis
+docker compose ps
+```
+
+Expected endpoints:
+
+- Postgres: `localhost:5433` (`postgres/postgres`, db: `ai_initializer`)
+- Redis: `localhost:6379` (password: `redis`)
+
+## 4) Environment Variables
+
+### 4.1 Backend env
+
+Copy the template and set values:
+
+```bash
+cp .env.example .env
+```
+
+Minimum values you must verify before first run:
+
+```env
 NODE_ENV=development
+PORT=3001
+HOST=0.0.0.0
 
-# Rate Limiting
-RATE_LIMIT_USER_MAX=100
-RATE_LIMIT_TENANT_MAX=1000
-RATE_LIMIT_IP_MAX=50
-RATE_LIMIT_WINDOW_MS=900000
+DATABASE_URL=postgresql://postgres:postgres@localhost:5433/ai_initializer
+REDIS_URL=redis://:redis@localhost:6379
+
+# exactly 32 chars
+TENANT_CONFIG_ENCRYPTION_KEY=replace-with-32-char-key-123456
+
+# provider switch (single-line provider selection)
+ACTIVE_AI_PROVIDER=openai
+AI_API_KEY=your-provider-key
+
+CORS_ORIGIN=http://localhost:3000
 ```
 
-#### Frontend (.env.local)
+Notes:
+
+- Backend validates env on startup and exits fast if required values are missing/invalid.
+- Webhook secrets are optional for local dev, but must be set for signature verification:
+  - `GITHUB_WEBHOOK_SECRET`
+  - `STRIPE_WEBHOOK_SECRET`
+  - `GITLAB_WEBHOOK_SECRET`
+  - `GENERIC_WEBHOOK_SECRET`
+
+### 4.2 JWT key setup (RS256)
+
+You have two valid options:
+
+- Option A: keep `JWT_PRIVATE_KEY` and `JWT_PUBLIC_KEY` empty in `.env` and generate key files on disk.
+- Option B: paste PEM strings into env vars.
+
+Recommended local path (Option A):
 
 ```bash
-NEXT_PUBLIC_BACKEND_URL=http://localhost:3001
+pnpm --filter backend run generate-keys
 ```
 
-## API Usage
+This creates:
 
-### Authentication
+- `packages/backend/keys/private.pem`
+- `packages/backend/keys/public.pem`
 
-```typescript
-import { apiClient } from '@/lib/api-client';
+### 4.3 Frontend env
 
-// Login
-const response = await apiClient.login({
-  email: 'admin@example.com',
-  password: 'password',
-});
+Create `packages/frontend/.env.local`:
 
-// API client automatically handles token refresh
+```env
+NEXT_PUBLIC_API_URL=http://localhost:3001
+NEXT_PUBLIC_DEFAULT_TENANT_ID=default-tenant
+NEXT_PUBLIC_APP_NAME=AI Integration
+NEXT_PUBLIC_MOCK_MODE=false
 ```
 
-### AI Provider Management
+`NEXT_PUBLIC_API_URL` and `NEXT_PUBLIC_DEFAULT_TENANT_ID` are required for production builds.
 
-```typescript
-// List configurations
-const configs = await apiClient.getTenantConfigs();
+## 5) Run The App
 
-// Add OpenAI configuration
-const config = await apiClient.createTenantConfig({
-  provider: 'openai',
-  api_key: 'sk-your-openai-key',
-  default_model: 'gpt-4',
-});
-```
-
-### File Processing
-
-```typescript
-// Upload file
-const uploadResponse = await apiClient.uploadFile(file);
-
-// Check processing status
-const status = await apiClient.getJobStatus(uploadResponse.jobId);
-```
-
-## Development
-
-### Running Tests
+From repository root:
 
 ```bash
-# Backend tests
-cd packages/backend
-pnpm test
-
-# Frontend tests
-cd packages/frontend
-pnpm test
-
-# All tests
-pnpm test
+pnpm dev
 ```
 
-### Database Operations
+What happens:
+
+- Frontend starts on `http://localhost:3000`
+- Backend starts on `http://localhost:3001`
+- Backend runs DB migrations on startup automatically
+
+Health checks:
+
+- `http://localhost:3001/health`
+- `http://localhost:3001/health/db`
+- `http://localhost:3001/health/redis`
+- `http://localhost:3001/health/detailed`
+
+## 6) First Login And Tenant Bootstrap
+
+There is no default admin user for first run.
+
+Create one via UI:
+
+1. Open `http://localhost:3000/register`
+2. Register with email/password (password min length is 8)
+
+Or create one via API:
 
 ```bash
-cd packages/backend
-
-# Create migration
-pnpm run migrate:create -- --name add_new_table
-
-# Run migrations
-pnpm run migrate
-
-# Rollback
-pnpm run migrate:down
-
-# Check status
-pnpm run migrate:status
+curl -X POST http://localhost:3001/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"email":"owner@example.com","password":"StrongPass123!","role":"owner"}'
 ```
 
-### Code Quality
+Registration creates tenant context automatically when needed.
+
+## 7) One-Line AI Provider Switching
+
+Swap global provider by editing one env line:
+
+```env
+ACTIVE_AI_PROVIDER=anthropic
+```
+
+Then provide the matching `AI_API_KEY` and restart backend.
+
+Supported built-in providers:
+
+- `openai`
+- `anthropic`
+- `deepgram`
+- `elevenlabs`
+
+Per-tenant provider configs can also be managed via `/api/tenant/config`.
+
+## 8) Streaming, Uploads, Voice, Webhooks
+
+Key runtime behavior:
+
+- Streaming chat endpoint: `POST /api/chat` (SSE)
+- Realtime chat socket: `ws://localhost:3001/ws/chat`
+- Upload pipeline: `/api/pipeline/*`
+- Webhooks: `POST /api/webhooks/:provider` (queued async via BullMQ)
+
+Webhook local test example:
 
 ```bash
-# Lint
-pnpm lint
+curl -X POST http://localhost:3001/api/webhooks/generic \
+  -H "Content-Type: application/json" \
+  -H "x-webhook-signature: <signature>" \
+  -d '{"event":"demo"}'
+```
 
-# Type check
-pnpm type-check
+If webhook secret env vars are unset, signature verification is skipped in local dev.
 
-# Build
+## 9) Rate Limiting And Redis
+
+Rate limiting is enabled on `/api` and depends on Redis.
+
+Tune with env vars:
+
+- `RATE_LIMIT_USER_MAX`
+- `RATE_LIMIT_TENANT_MAX`
+- `RATE_LIMIT_IP_MAX`
+- `RATE_LIMIT_WINDOW_MS`
+
+If Redis is unreachable, auth/session/queue features can fail. Always start Redis first.
+
+## 10) Deployment Env Management
+
+### Vercel (frontend)
+
+- Root directory: `packages/frontend`
+- Build command: `pnpm build`
+- Required envs:
+  - `NEXT_PUBLIC_API_URL`
+  - `NEXT_PUBLIC_DEFAULT_TENANT_ID`
+  - `NEXT_PUBLIC_MOCK_MODE=false`
+
+See full guide: `docs/Vercel-Deployment.md`.
+
+### Fly.io (backend)
+
+No `fly.toml` is committed in this repo. Generate one for `packages/backend` using `flyctl` and the existing Dockerfile.
+
+Set backend secrets in Fly (minimum):
+
+- `DATABASE_URL`
+- `REDIS_URL`
+- `TENANT_CONFIG_ENCRYPTION_KEY`
+- `JWT_PRIVATE_KEY` and `JWT_PUBLIC_KEY` (or mount keys)
+- `ACTIVE_AI_PROVIDER`
+- `AI_API_KEY`
+
+## 11) Useful Commands
+
+```bash
+# Start/stop local infra
+pnpm docker:up
+pnpm docker:down
+
+# Logs
+pnpm docker:logs
+
+# Build all packages
 pnpm build
+
+# Run backend tests
+pnpm --filter backend test
+
+# DB seed (optional demo data)
+pnpm --filter backend run seed
 ```
 
-## Deployment
+## 12) Complete pnpm Script Reference
 
-### Vercel (Frontend)
+This section lists every script currently defined in the workspace and what each one does.
 
-The frontend can be deployed to Vercel with mock mode support:
+### Root scripts (`/package.json`)
 
-1. **Connect Repository**: Import your Git repository to Vercel
-2. **Configure Build Settings**:
-   - Framework: Next.js
-   - Root Directory: `packages/frontend`
-   - Build Command: `pnpm build`
-3. **Set Environment Variables**:
-   - `NEXT_PUBLIC_BACKEND_URL`: Your backend API URL
-   - `NEXT_PUBLIC_MOCK_MODE`: `false` (or `true` for testing)
-4. **Deploy**: Vercel will automatically build and deploy
+- `pnpm dev:backend`: starts only the backend dev server (`packages/backend`).
+- `pnpm dev:frontend`: starts only the frontend dev server (`packages/frontend`).
+- `pnpm dev`: starts backend and frontend together via concurrently.
+- `pnpm build`: builds backend, then frontend.
+- `pnpm lint`: runs ESLint with `--fix` across the repo.
+- `pnpm format`: runs Prettier write on TS/JS/JSON/MD files.
+- `pnpm format:check`: runs Prettier check (no file writes).
+- `pnpm prepare`: installs Husky git hooks.
+- `pnpm docker:up`: runs `docker compose up -d`.
+- `pnpm docker:down`: runs `docker compose down`.
+- `pnpm docker:build`: builds Compose images.
+- `pnpm docker:logs`: tails Compose logs.
+- `pnpm docker:ps`: lists Compose container status.
 
-See [Vercel Deployment Guide](./docs/Vercel-Deployment.md) for detailed instructions.
+### Backend scripts (`packages/backend/package.json`)
 
-### Docker
+- `pnpm --filter backend dev`: runs backend in watch mode with `ts-node-dev`.
+- `pnpm --filter backend build`: compiles backend TypeScript to `dist`.
+- `pnpm --filter backend start`: runs compiled backend from `dist/index.js`.
+- `pnpm --filter backend seed`: seeds the database with demo data.
+- `pnpm --filter backend migrate`: runs node-pg-migrate CLI.
+- `pnpm --filter backend migrate:up`: applies pending migrations.
+- `pnpm --filter backend migrate:down`: rolls back migrations.
+- `pnpm --filter backend migrate:create -- <name>`: creates a new migration file.
+- `pnpm --filter backend migrate:status`: prints migration status.
+- `pnpm --filter backend generate-keys`: generates RS256 key pair in `packages/backend/keys`.
+- `pnpm --filter backend test`: runs backend tests once (Vitest).
+- `pnpm --filter backend test:watch`: runs backend tests in watch mode.
+
+### Frontend scripts (`packages/frontend/package.json`)
+
+- `pnpm --filter frontend dev`: runs Next.js dev server.
+- `pnpm --filter frontend build`: builds Next.js for production.
+- `pnpm --filter frontend start`: starts built Next.js app.
+
+### Shared types scripts (`packages/types/package.json`)
+
+- `pnpm --filter @ai-integration/types build`: compiles shared types package.
+- `pnpm --filter @ai-integration/types dev`: watches and recompiles shared types.
+
+## 13) Troubleshooting
+
+### Backend exits during startup
+
+- Check `.env` values (backend validates on boot).
+- Confirm `TENANT_CONFIG_ENCRYPTION_KEY` is exactly 32 characters.
+- Confirm JWT keys exist or env keys are set.
+
+### Postgres auth errors (`28P01`) even though Docker DB is healthy
+
+- Confirm `DATABASE_URL` points to `localhost:5433`, not `5432`.
+- Verify docker container is up: `docker compose ps`.
+
+### Frontend cannot reach API
+
+- Confirm `NEXT_PUBLIC_API_URL=http://localhost:3001` in `packages/frontend/.env.local`.
+- Confirm backend CORS origin includes `http://localhost:3000`.
+
+### Clean reset
 
 ```bash
-# Build and run
-docker-compose up --build
-
-# Production build
-docker-compose -f docker-compose.prod.yml up --build
+docker compose down -v
+docker compose up -d postgres redis
+pnpm dev
 ```
 
-### Environment Setup
+## 14) Docs
 
-1. **Database**: Set up PostgreSQL with proper permissions
-2. **Redis**: Configure Redis for session storage
-3. **SSL**: Configure SSL certificates for production
-4. **Environment Variables**: Set production values
-5. **Migrations**: Run database migrations
-
-## Security Considerations
-
-- API keys are encrypted at rest using AES-256
-- JWT tokens use RS256 asymmetric signing
-- Rate limiting prevents abuse
-- Row Level Security ensures tenant isolation
-- Input validation on all endpoints
-- CORS configured for allowed origins
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Write tests for new functionality
-4. Ensure all tests pass
-5. Submit a pull request
-
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## Support
-
-- 📖 [API Documentation](./docs/API.md)
-- 👥 [User Guide](./docs/User-Guide.md)
-- � [Vercel Deployment Guide](./docs/Vercel-Deployment.md)
-- �🐛 [Issue Tracker](https://github.com/your-org/ai-integration-platform/issues)
-- 💬 [Discussions](https://github.com/your-org/ai-integration-platform/discussions)
+- `docs/API.md`
+- `docs/User-Guide.md`
+- `docs/Vercel-Deployment.md`
