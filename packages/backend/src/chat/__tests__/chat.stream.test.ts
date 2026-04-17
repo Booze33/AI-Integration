@@ -10,7 +10,7 @@ import express from 'express';
 import type { Pool } from 'pg';
 import { createChatRoutes } from '../index';
 
-const mockUser = {
+let mockUser = {
   userId: 'user-1',
   email: 'tester@example.com',
   role: 'member',
@@ -138,6 +138,22 @@ describe('Chat Stream Endpoint', () => {
       });
     });
 
+    it('should accept all valid message roles', async () => {
+      const validRoles = ['system', 'user', 'assistant', 'function'] as const;
+
+      for (const role of validRoles) {
+        const response = await request(app)
+          .post('/api/chat')
+          .send({ messages: [{ role, content: `Hello from ${role}` }] })
+          .expect(200)
+          .expect('Content-Type', /text\/event-stream/);
+
+        const rawEvents = response.text.split('\n\n');
+        const hasStart = rawEvents.some((event: string) => event.includes('event: start'));
+        expect(hasStart).toBe(true);
+      }
+    });
+
     it('should stream SSE response with correct headers', async () => {
       const response = await request(app)
         .post('/api/chat')
@@ -178,6 +194,62 @@ describe('Chat Stream Endpoint', () => {
       expect(data.id).toBeDefined();
       expect(data.streamId).toBe(data.id);
       expect(data.model).toBeDefined();
+    });
+
+    it('should delete stream state from Redis cache after completion', async () => {
+      const response = await request(app)
+        .post('/api/chat')
+        .send({ messages: [{ role: 'user', content: 'Hello' }] })
+        .expect(200);
+
+      const rawEvents = response.text.split('\n\n');
+      const startEvent = rawEvents.find((e: string) => e.includes('event: start'));
+      expect(startEvent).toBeDefined();
+
+      const dataLine = startEvent?.split('\n').find((l) => l.startsWith('data:'));
+      const data = JSON.parse(dataLine?.slice(6) || '{}');
+      expect(data.streamId).toBeDefined();
+
+      expect(streamCache.has(data.streamId)).toBe(false);
+    });
+
+    it('should resume with Last-Event-ID and replay cached chunks from Redis', async () => {
+      const reconnectId = 'resume-stream-1';
+      streamCache.set(reconnectId, {
+        id: reconnectId,
+        messages: [{ role: 'user', content: 'Original message' }],
+        options: { model: 'mock-model', stream: true },
+        chunks: ['Hello', ' world'],
+        finished: false,
+        createdAt: Date.now(),
+      });
+
+      const response = await request(app)
+        .post('/api/chat')
+        .set('Last-Event-ID', reconnectId)
+        .send({ messages: [{ role: 'user', content: 'Reconnect' }] })
+        .expect(200)
+        .expect('Content-Type', /text\/event-stream/);
+
+      const rawEvents = response.text.split('\n\n').filter((event: string) => event.trim());
+      const parsedEvents = rawEvents.map((event: string) => {
+        const lines = event.split('\n');
+        const eventType = lines.find((l) => l.startsWith('event:'))?.slice(7);
+        const dataLine = lines.find((l) => l.startsWith('data:'));
+        const data = dataLine ? JSON.parse(dataLine.slice(6)) : null;
+        return { type: eventType, data };
+      });
+
+      const startEvent = parsedEvents.find((e) => e.type === 'start');
+      expect(startEvent?.data?.streamId).toBe(reconnectId);
+      expect(startEvent?.data?.resumed).toBe(true);
+
+      const chunkEvents = parsedEvents.filter((e) => e.type === 'chunk');
+      expect(chunkEvents).toHaveLength(2);
+      expect(chunkEvents[0].data).toEqual({ content: 'Hello', index: 0 });
+      expect(chunkEvents[1].data).toEqual({ content: ' world', index: 1 });
+
+      expect(mockChatStream).not.toHaveBeenCalled();
     });
   });
 });
@@ -330,5 +402,91 @@ describe('Chat Session ID — persistent history grouping', () => {
     // Both inserts must use the client-provided sessionId
     expect((insertCalls[0] as any[])[1][3]).toBe(sessionId);
     expect((insertCalls[1] as any[])[1][3]).toBe(sessionId);
+  });
+});
+
+describe('Chat History Authorization Scope', () => {
+  it('returns only the authenticated user history for each request', async () => {
+    const scopedPool = {
+      query: vi.fn(async (sql: string, params?: unknown[]) => {
+        if (sql.includes('SELECT id, user_id, user_email')) {
+          const requestedUserId = params?.[0];
+
+          if (requestedUserId === 'user-a') {
+            return {
+              rows: [
+                {
+                  id: 'row-a-1',
+                  user_id: 'user-a',
+                  user_email: 'a@example.com',
+                  role: 'member',
+                  stream_id: 'stream-a',
+                  messages: [{ role: 'user', content: 'A only message' }],
+                  created_at: new Date('2026-01-01T00:00:00.000Z').toISOString(),
+                },
+              ],
+            };
+          }
+
+          if (requestedUserId === 'user-b') {
+            return {
+              rows: [
+                {
+                  id: 'row-b-1',
+                  user_id: 'user-b',
+                  user_email: 'b@example.com',
+                  role: 'member',
+                  stream_id: 'stream-b',
+                  messages: [{ role: 'user', content: 'B only message' }],
+                  created_at: new Date('2026-01-02T00:00:00.000Z').toISOString(),
+                },
+              ],
+            };
+          }
+
+          return { rows: [] };
+        }
+
+        return { rows: [] };
+      }),
+    } as unknown as Pool;
+
+    const app = express();
+    app.use(express.json());
+    app.use('/api', createChatRoutes(scopedPool));
+
+    mockUser = {
+      userId: 'user-a',
+      email: 'a@example.com',
+      role: 'member',
+      tenantId: 'tenant-a',
+    };
+
+    const userAResponse = await request(app).get('/api/chat/history').expect(200);
+
+    expect(userAResponse.body.sessions).toHaveLength(1);
+    expect(userAResponse.body.sessions[0].userId).toBe('user-a');
+
+    mockUser = {
+      userId: 'user-b',
+      email: 'b@example.com',
+      role: 'member',
+      tenantId: 'tenant-b',
+    };
+
+    const userBResponse = await request(app).get('/api/chat/history').expect(200);
+
+    expect(userBResponse.body.sessions).toHaveLength(1);
+    expect(userBResponse.body.sessions[0].userId).toBe('user-b');
+
+    const historyQueryCalls = (scopedPool.query as ReturnType<typeof vi.fn>).mock.calls.filter(
+      (args) =>
+        typeof args[0] === 'string' &&
+        (args[0] as string).includes('SELECT id, user_id, user_email')
+    );
+
+    expect(historyQueryCalls).toHaveLength(2);
+    expect(historyQueryCalls[0][1][0]).toBe('user-a');
+    expect(historyQueryCalls[1][1][0]).toBe('user-b');
   });
 });
