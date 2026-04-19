@@ -5,7 +5,7 @@
  * Supports multiple providers per tenant with one active at a time.
  */
 
-import { createCipheriv, createDecipheriv, randomBytes } from 'crypto';
+import { createCipheriv, createDecipheriv, randomBytes, randomUUID } from 'crypto';
 import { ProviderName, ProviderConfig } from './types';
 
 /**
@@ -288,7 +288,8 @@ export class InMemoryTenantAIConfigRepository implements TenantAIConfigRepositor
     input: TenantAIConfigInput,
     createdBy: string
   ): Promise<TenantAIConfig> {
-    const id = `config-${++this.idCounter}`;
+    void ++this.idCounter; // keep counter for reference
+    const id = randomUUID();
     const now = new Date();
 
     // For in-memory implementation, we'll store the API key as-is
@@ -298,7 +299,7 @@ export class InMemoryTenantAIConfigRepository implements TenantAIConfigRepositor
       tenant_id: tenantId,
       provider: input.provider,
       api_key_encrypted: input.api_key, // In real impl this would be encrypted
-      api_key_iv: 'dummy-iv', // In real impl this would be generated
+      api_key_iv: input.api_key_iv ?? 'dummy-iv', // Use IV passed by service layer
       base_url: input.base_url,
       organization: input.organization,
       default_model: input.default_model,
@@ -326,9 +327,11 @@ export class InMemoryTenantAIConfigRepository implements TenantAIConfigRepositor
       throw new Error(`Config not found: ${id}`);
     }
 
+    const { api_key, ...rest } = input as any;
     const updated: TenantAIConfig = {
       ...config,
-      ...input,
+      ...rest,
+      ...(api_key !== undefined ? { api_key_encrypted: api_key } : {}),
       updated_by: updatedBy,
       updated_at: new Date(),
     };

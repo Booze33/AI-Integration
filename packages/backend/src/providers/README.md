@@ -321,7 +321,7 @@ Support tenant-specific API keys and provider configurations stored encrypted in
 import { createTenantAIConfigService, getProviderForTenant } from './providers';
 
 // Initialize encryption service
-const configService = createTenantAIConfigService(process.env.TENANT_AI_ENCRYPTION_KEY);
+const configService = createTenantAIConfigService(process.env.TENANT_CONFIG_ENCRYPTION_KEY);
 
 // Get provider for specific tenant
 const provider = await getProviderForTenant(tenantId, 'openai', configService, tenantConfig);
@@ -345,6 +345,19 @@ CREATE TABLE tenant.ai_configs (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 ```
+
+### Encryption Key Requirements
+
+- `TENANT_CONFIG_ENCRYPTION_KEY` must be exactly 32 characters.
+- Startup validation enforces this requirement and exits if invalid.
+
+### Key Rotation Behavior
+
+Changing `TENANT_CONFIG_ENCRYPTION_KEY` makes previously stored tenant API keys unreadable because
+the ciphertext was produced with the old key. This is expected behavior for symmetric encryption.
+
+If key rotation is required, re-encrypt existing records with a controlled migration process before
+switching all services to the new key.
 
 ## Error Handling
 
