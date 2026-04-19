@@ -4,7 +4,14 @@
  * Exports audit logging, input sanitization, and environment validation utilities.
  */
 
-export { AuditService, AuditEvent, getClientInfo, createAuditService } from './service';
+export {
+  AuditService,
+  AuditEvent,
+  getClientInfo,
+  createAuditService,
+  startAuditCleanupJob,
+  AUDIT_CLEANUP_INTERVAL_MS,
+} from './service';
 export { InputSanitizer, InputValidator, ValidationRule, ValidationSchema } from './sanitizer';
 export {
   validateEnv,

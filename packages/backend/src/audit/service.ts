@@ -228,6 +228,24 @@ export class AuditService {
   }
 }
 
+export const AUDIT_CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
+
+export function startAuditCleanupJob(
+  auditService: AuditService,
+  intervalMs: number = AUDIT_CLEANUP_INTERVAL_MS
+): NodeJS.Timeout {
+  return setInterval(async () => {
+    try {
+      const deletedCount = await auditService.cleanOldLogs();
+      if (deletedCount > 0) {
+        console.log(`🧹 Audit cleanup removed ${deletedCount} old log(s)`);
+      }
+    } catch (error) {
+      console.error('Audit cleanup failed:', error);
+    }
+  }, intervalMs);
+}
+
 /**
  * Middleware to extract IP address and user agent
  */

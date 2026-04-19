@@ -12,6 +12,7 @@ import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import request from 'supertest';
 import express from 'express';
 import crypto from 'crypto';
+import { errorHandler } from '../../errors';
 
 // ---------------------------------------------------------------------------
 // Mock WebhookQueueService before importing routes.
@@ -42,9 +43,14 @@ import { webhookRoutes, PROVIDERS } from '../routes';
 
 function buildApp() {
   const app = express();
+  app.use((req, _res, next) => {
+    req.requestId = 'webhook-test-request';
+    next();
+  });
   // Webhook routes BEFORE express.json() — exactly like src/index.ts
   app.use('/api', webhookRoutes);
   app.use(express.json());
+  app.use(errorHandler);
   return app;
 }
 
@@ -207,6 +213,21 @@ describe('Webhook Routes', () => {
       expect(mockEnqueue).toHaveBeenCalledOnce();
     });
 
+    it('captures raw body correctly because webhook routes are mounted before express.json()', async () => {
+      process.env['GITHUB_WEBHOOK_SECRET'] = GITHUB_SECRET;
+
+      const sig = githubSig(sampleBody, GITHUB_SECRET);
+
+      await request(app)
+        .post('/api/webhooks/github')
+        .set('Content-Type', 'application/json')
+        .set('x-hub-signature-256', sig)
+        .send(sampleBody)
+        .expect(200);
+
+      expect(mockEnqueue).toHaveBeenCalledOnce();
+    });
+
     it('is case-insensitive for the provider name in the URL', async () => {
       const res = await request(app)
         .post('/api/webhooks/GitHub')
@@ -238,6 +259,20 @@ describe('Webhook Routes', () => {
       expect(res.body.received).toBe(true);
       expect(res.body.provider).toBe('Stripe');
       expect(mockEnqueue).toHaveBeenCalledOnce();
+    });
+
+    it('accepts a Stripe signature when the timestamp is within the 5 minute tolerance', async () => {
+      process.env['STRIPE_WEBHOOK_SECRET'] = STRIPE_SECRET;
+
+      const withinToleranceTs = Math.floor(Date.now() / 1000) - 4 * 60;
+      const sig = stripeSig(sampleBody, STRIPE_SECRET, withinToleranceTs);
+
+      await request(app)
+        .post('/api/webhooks/stripe')
+        .set('Content-Type', 'application/json')
+        .set('stripe-signature', sig)
+        .send(sampleBody)
+        .expect(200);
     });
 
     it('returns 401 for an invalid Stripe signature', async () => {
@@ -383,8 +418,25 @@ describe('Webhook Routes', () => {
         .send(sampleBody)
         .expect(500);
 
-      expect(res.body.error).toBe('Queue error');
-      expect(res.body.message).toContain('Redis connection refused');
+      expect(res.body.error).toBe('INTERNAL_ERROR');
+      expect(res.body.message).toBe('An unexpected error occurred. Please try again later.');
+      expect(res.body.correlationId).toBe('webhook-test-request');
+    });
+
+    it('returns 200 immediately for a valid webhook in under 100ms', async () => {
+      const start = Date.now();
+
+      const res = await request(app)
+        .post('/api/webhooks/github')
+        .set('Content-Type', 'application/json')
+        .set('x-github-event', 'push')
+        .send(sampleBody)
+        .expect(200);
+
+      const elapsedMs = Date.now() - start;
+
+      expect(res.body.received).toBe(true);
+      expect(elapsedMs).toBeLessThan(100);
     });
   });
 

@@ -47,6 +47,36 @@ export interface ErrorResponse {
 
 const IS_PRODUCTION = () => process.env.NODE_ENV === 'production';
 
+function isDatabaseAvailabilityError(
+  err: Error & { code?: string; errno?: string | number }
+): boolean {
+  const databaseCodes = new Set([
+    'ECONNREFUSED',
+    'ECONNRESET',
+    'ENOTFOUND',
+    'ETIMEDOUT',
+    'EHOSTUNREACH',
+    '57P01',
+    '57P03',
+    '53300',
+  ]);
+
+  if (err.code && databaseCodes.has(err.code)) {
+    return true;
+  }
+
+  const message = err.message.toLowerCase();
+  return [
+    'connection terminated unexpectedly',
+    'connection request timeout',
+    'query timeout',
+    'statement timeout',
+    'database is unavailable',
+    'failed to connect',
+    'connect econnrefused',
+  ].some((fragment) => message.includes(fragment));
+}
+
 /**
  * Normalise any thrown value into a structured response.
  * Handles AppError subclasses, plain Error objects, strings, and
@@ -73,6 +103,17 @@ function normalise(err: unknown): {
 
   // Express / Node errors often carry a `status` or `statusCode` property
   if (err instanceof Error) {
+    if (isDatabaseAvailabilityError(err as Error & { code?: string; errno?: string | number })) {
+      return {
+        statusCode: 503,
+        code: 'SERVICE_UNAVAILABLE',
+        userMessage: 'Service temporarily unavailable',
+        isOperational: true,
+        originalMessage: err.message,
+        stack: err.stack,
+      };
+    }
+
     const status =
       (err as Error & { status?: number; statusCode?: number }).status ??
       (err as Error & { status?: number; statusCode?: number }).statusCode ??

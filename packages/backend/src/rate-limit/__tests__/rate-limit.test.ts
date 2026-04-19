@@ -111,6 +111,7 @@ describe('Rate-Limit Middleware', () => {
       expect(mockIncrement.mock.calls[0][0]).toMatch(/^rl:u:user-1$/);
       expect(res.headers['x-ratelimit-limit']).toBe('5');
       expect(res.headers['x-ratelimit-remaining']).toBe('4');
+      expect(Number(res.headers['x-ratelimit-reset'])).toBeGreaterThan(0);
     });
 
     it('returns 429 with Retry-After when limit is exceeded', async () => {
@@ -319,6 +320,22 @@ describe('Rate-Limit Middleware', () => {
 
       await request(app).get('/api/hello').expect(200);
       expect(mockIncrement).toHaveBeenCalledTimes(2);
+    });
+
+    it('uses only the IP limiter for unauthenticated requests', async () => {
+      mockIncrement.mockResolvedValueOnce(makeResult(1, 50));
+
+      const app = express();
+      app.use('/api', ...createRateLimiter());
+      app.get('/api/hello', (_req, res) => res.json({ ok: true }));
+
+      const res = await request(app).get('/api/hello').expect(200);
+
+      expect(mockIncrement).toHaveBeenCalledTimes(1);
+      expect(mockIncrement.mock.calls[0][0]).toMatch(/^rl:ip:/);
+      expect(res.headers['x-ratelimit-limit']).toBeDefined();
+      expect(res.headers['x-ratelimit-remaining']).toBeDefined();
+      expect(res.headers['x-ratelimit-reset']).toBeDefined();
     });
 
     it('stops at the first exceeded scope and returns 429', async () => {

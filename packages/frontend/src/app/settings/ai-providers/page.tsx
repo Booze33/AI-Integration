@@ -35,6 +35,10 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingConfig, setEditingConfig] = useState<TenantConfig | null>(null);
+  const [pageError, setPageError] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<{ configId: string; message: string } | null>(
+    null
+  );
 
   // Form state
   const [formData, setFormData] = useState({
@@ -75,6 +79,8 @@ export default function SettingsPage() {
       setLoading(true);
       setShowAddForm(false);
       setEditingConfig(null);
+      setPageError(null);
+      setDeleteError(null);
 
       const currentUserResponse = await apiClient.getCurrentUser();
       setUser(currentUserResponse.user);
@@ -94,6 +100,9 @@ export default function SettingsPage() {
     } catch (error) {
       console.error('Failed to load data:', error);
       if (!(error instanceof ApiError && (error.statusCode === 401 || error.statusCode === 403))) {
+        setPageError(
+          error instanceof Error ? error.message : 'Failed to load AI provider settings.'
+        );
         showToast('Network error while loading AI providers.', 'error');
       }
     } finally {
@@ -119,6 +128,7 @@ export default function SettingsPage() {
       return;
     }
 
+    setPageError(null);
     resetForm();
     setEditingConfig(null);
     setShowAddForm(true);
@@ -129,6 +139,7 @@ export default function SettingsPage() {
       return;
     }
 
+    setDeleteError(null);
     setFormData({
       provider: config.provider,
       api_key: '', // Don't pre-fill API key for security
@@ -177,6 +188,7 @@ export default function SettingsPage() {
 
     try {
       setSaving(true);
+      setPageError(null);
       setErrors({});
 
       const parsedTimeout = formData.timeout_ms ? Number(formData.timeout_ms) : undefined;
@@ -247,17 +259,29 @@ export default function SettingsPage() {
     }
 
     try {
+      setDeleteError(null);
       const response = await apiClient.deleteTenantConfig(configId);
 
       if (response.success) {
         await loadData(); // Reload configs
         showToast('Provider configuration deactivated successfully.', 'success');
       } else {
+        setDeleteError({
+          configId,
+          message: 'Failed to deactivate this provider configuration. Please try again.',
+        });
         showToast('Network error while deactivating provider.', 'error');
       }
     } catch (error) {
       console.error('Failed to delete config:', error);
       if (!(error instanceof ApiError && error.statusCode === 401)) {
+        setDeleteError({
+          configId,
+          message:
+            error instanceof Error
+              ? error.message
+              : 'Failed to deactivate this provider configuration.',
+        });
         showToast('Network error while deactivating provider.', 'error');
       }
     }
@@ -348,6 +372,12 @@ export default function SettingsPage() {
           </div>
         </div>
 
+        {pageError ? (
+          <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+            {pageError}
+          </div>
+        ) : null}
+
         {/* Configurations List */}
         <div className="mt-8">
           <div className="space-y-4">
@@ -427,6 +457,9 @@ export default function SettingsPage() {
                         </button>
                       </div>
                     </div>
+                    {deleteError?.configId === config.id ? (
+                      <p className="mt-3 text-sm text-red-600">{deleteError.message}</p>
+                    ) : null}
                   </li>
                 ))
               )}

@@ -10,6 +10,9 @@ import express from 'express';
 import { tenantConfigRoutes, setTenantConfigService } from '../routes';
 import { createTenantAIConfigService, InMemoryTenantAIConfigRepository } from '../tenant-config';
 
+const mockAuditLog = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+const mockAuditServiceLog = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+
 // Mock authentication middleware
 vi.mock('../../auth/middleware', () => ({
   authenticate: (req: any, res: any, next: any) => {
@@ -19,6 +22,28 @@ vi.mock('../../auth/middleware', () => ({
   },
   requireRole: () => (req: any, res: any, next: any) => next(),
 }));
+
+vi.mock('../../audit', async () => {
+  const actual = await vi.importActual<any>('../../audit');
+  return {
+    ...actual,
+    logAudit: async (auditService: any, event: any) => {
+      mockAuditLog(auditService, event);
+      if (!auditService) {
+        return;
+      }
+
+      try {
+        await auditService.log({
+          ...event,
+          timestamp: new Date(),
+        });
+      } catch (error) {
+        console.error('Failed to log audit event:', error);
+      }
+    },
+  };
+});
 
 describe('Tenant Config API Routes', () => {
   let app: express.Application;
@@ -33,6 +58,13 @@ describe('Tenant Config API Routes', () => {
     // Create test app
     app = express();
     app.use(express.json());
+    app.use((req: any, _res, next) => {
+      req.auditService = { log: mockAuditServiceLog };
+      req.clientInfo = { ipAddress: '203.0.113.5', userAgent: 'providers-route-test' };
+      next();
+    });
+    mockAuditLog.mockClear();
+    mockAuditServiceLog.mockClear();
 
     // Mock the service in the routes
     app.use('/api/tenant', tenantConfigRoutes);
@@ -144,6 +176,27 @@ describe('Tenant Config API Routes', () => {
       expect(response.body.data.api_key_encrypted).toBe('••••••••••••••••');
       expect(response.body.data.base_url).toBe('https://api.openai.com');
       expect(response.body.data.default_model).toBe('gpt-4');
+      expect(mockAuditLog).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          action: 'CREATE_CONFIG',
+          resource: 'TENANT_AI_CONFIG',
+          ipAddress: '203.0.113.5',
+          userAgent: 'providers-route-test',
+          statusCode: 201,
+        })
+      );
+    });
+
+    it('continues the request when audit logging fails', async () => {
+      mockAuditServiceLog.mockRejectedValueOnce(new Error('audit write failed'));
+
+      const response = await request(app)
+        .post('/api/tenant/config')
+        .send({ provider: 'openai', api_key: 'sk-audit-failure' })
+        .expect(201);
+
+      expect(response.body.success).toBe(true);
     });
 
     it('should validate required fields', async () => {
@@ -216,7 +269,9 @@ describe('Tenant Config API Routes', () => {
     });
 
     it('should return 404 for non-existent configuration', async () => {
-      const response = await request(app).get('/api/tenant/config/non-existent-id').expect(404);
+      const response = await request(app)
+        .get('/api/tenant/config/11111111-1111-4111-8111-111111111111')
+        .expect(404);
 
       expect(response.body.success).toBe(false);
       expect(response.body.error).toBe('Configuration not found');
@@ -247,11 +302,20 @@ describe('Tenant Config API Routes', () => {
       expect(response.body.success).toBe(true);
       expect(response.body.data.base_url).toBe('https://api.openai.com');
       expect(response.body.data.timeout_ms).toBe(30000);
+      expect(mockAuditLog).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          action: 'UPDATE_CONFIG',
+          resource: 'TENANT_AI_CONFIG',
+          resourceId: created.id,
+          statusCode: 200,
+        })
+      );
     });
 
     it('should return 404 for non-existent configuration', async () => {
       const response = await request(app)
-        .put('/api/tenant/config/non-existent-id')
+        .put('/api/tenant/config/11111111-1111-4111-8111-111111111111')
         .send({ base_url: 'https://example.com' })
         .expect(404);
 
@@ -310,6 +374,15 @@ describe('Tenant Config API Routes', () => {
 
       expect(response.body.success).toBe(true);
       expect(response.body.message).toContain('deactivated');
+      expect(mockAuditLog).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          action: 'DEACTIVATE_CONFIG',
+          resource: 'TENANT_AI_CONFIG',
+          resourceId: created.id,
+          statusCode: 200,
+        })
+      );
 
       // Verify it's deactivated
       const found = await service.findById(created.id);

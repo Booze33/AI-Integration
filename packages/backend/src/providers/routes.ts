@@ -12,7 +12,7 @@ import { authenticate, requireRole, AuthenticatedRequest } from '../auth/middlew
 import { TenantAIConfigService } from './tenant-config';
 import { PostgreSQLTenantAIConfigRepository } from './postgres-repository';
 import { ProviderName } from './types';
-import { Request, Response } from 'express';
+import { NextFunction, Request, Response } from 'express';
 import { logAudit, InputSanitizer } from '../audit';
 
 // Create service instance with encryption key from environment and PostgreSQL repository
@@ -46,7 +46,7 @@ router.get(
   '/config',
   authenticate,
   requireRole('admin', 'owner'),
-  async (req: Request, res: Response) => {
+  async (req: Request, res: Response, next: NextFunction) => {
     try {
       const authReq = req as AuthenticatedRequest;
       const tenantId = authReq.tenantId!;
@@ -64,10 +64,7 @@ router.get(
       });
     } catch (error) {
       console.error('Error fetching configurations:', error);
-      res.status(500).json({
-        success: false,
-        error: 'Failed to fetch configurations',
-      });
+      next(error);
     }
   }
 );
@@ -78,7 +75,7 @@ router.get(
   authenticate,
   requireRole('admin', 'owner'),
   param('id').isUUID(),
-  async (req: Request, res: Response) => {
+  async (req: Request, res: Response, next: NextFunction) => {
     try {
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
@@ -112,10 +109,7 @@ router.get(
       });
     } catch (error) {
       console.error('Error fetching configuration:', error);
-      res.status(500).json({
-        success: false,
-        error: 'Failed to fetch configuration',
-      });
+      next(error);
     }
   }
 );
@@ -146,7 +140,7 @@ router.post(
     body('timeout_ms').optional().isInt({ min: 1000, max: 300000 }),
     body('max_retries').optional().isInt({ min: 0, max: 10 }),
   ],
-  async (req: Request, res: Response) => {
+  async (req: Request, res: Response, next: NextFunction) => {
     try {
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
@@ -252,10 +246,7 @@ router.post(
         errorMessage: error instanceof Error ? error.message : 'Unknown error',
       });
       console.error('Error creating configuration:', error);
-      res.status(500).json({
-        success: false,
-        error: 'Failed to create configuration',
-      });
+      next(error);
     }
   }
 );
@@ -289,7 +280,7 @@ router.put(
     body('timeout_ms').optional().isInt({ min: 1000, max: 300000 }),
     body('max_retries').optional().isInt({ min: 0, max: 10 }),
   ],
-  async (req: Request, res: Response) => {
+  async (req: Request, res: Response, next: NextFunction) => {
     try {
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
@@ -330,6 +321,26 @@ router.put(
 
       const config = await getTenantConfigService().update(id, updates, userId);
 
+      await logAudit(req.auditService, {
+        tenantId,
+        userId,
+        action: 'UPDATE_CONFIG',
+        resource: 'TENANT_AI_CONFIG',
+        resourceId: config.id,
+        changes: {
+          provider: config.provider,
+          base_url: config.base_url,
+          organization: config.organization,
+          default_model: config.default_model,
+          default_voice_id: config.default_voice_id,
+          timeout_ms: config.timeout_ms,
+          max_retries: config.max_retries,
+        },
+        ipAddress: req.clientInfo?.ipAddress || 'unknown',
+        userAgent: req.clientInfo?.userAgent || 'unknown',
+        statusCode: 200,
+      });
+
       // Mask API key in response
       const maskedConfig = {
         ...config,
@@ -342,10 +353,7 @@ router.put(
       });
     } catch (error) {
       console.error('Error updating configuration:', error);
-      res.status(500).json({
-        success: false,
-        error: 'Failed to update configuration',
-      });
+      next(error);
     }
   }
 );
@@ -356,7 +364,7 @@ router.delete(
   authenticate,
   requireRole('admin', 'owner'),
   param('id').isUUID(),
-  async (req: Request, res: Response) => {
+  async (req: Request, res: Response, next: NextFunction) => {
     try {
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
@@ -382,16 +390,24 @@ router.delete(
 
       await getTenantConfigService().deactivate(id, userId);
 
+      await logAudit(req.auditService, {
+        tenantId,
+        userId,
+        action: 'DEACTIVATE_CONFIG',
+        resource: 'TENANT_AI_CONFIG',
+        resourceId: id,
+        ipAddress: req.clientInfo?.ipAddress || 'unknown',
+        userAgent: req.clientInfo?.userAgent || 'unknown',
+        statusCode: 200,
+      });
+
       res.json({
         success: true,
         message: 'Configuration deactivated successfully',
       });
     } catch (error) {
       console.error('Error deactivating configuration:', error);
-      res.status(500).json({
-        success: false,
-        error: 'Failed to deactivate configuration',
-      });
+      next(error);
     }
   }
 );

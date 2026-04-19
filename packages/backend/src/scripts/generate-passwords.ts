@@ -15,7 +15,6 @@ async function generateHashes() {
   for (const [email, password] of Object.entries(passwords)) {
     const hash = await bcrypt.hash(password, 12);
     console.log(`Email: ${email}`);
-    console.log(`Password: ${password}`);
     console.log(`Hash: ${hash}\n`);
   }
 }

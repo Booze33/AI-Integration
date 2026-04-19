@@ -17,6 +17,7 @@ import { createDashboardRoutes } from './dashboard/routes';
 import { createRateLimiter } from './rate-limit';
 import { requestLogger } from './logger';
 import { notFoundHandler, errorHandler } from './errors';
+import { securityHeadersMiddleware } from './security';
 import { closeRedisClient, getRedisClientHealth } from './redis/client';
 import { getPipelineService } from './pipeline/singleton';
 import {
@@ -25,6 +26,7 @@ import {
   getClientInfo,
   AuditService,
   createAuditService,
+  startAuditCleanupJob,
 } from './audit';
 
 // ---------------------------------------------------------------------------
@@ -40,6 +42,9 @@ const app = express();
 let sharedPool: Pool | null = null;
 let auditService: AuditService | null = null;
 let auditCleanupInterval: NodeJS.Timeout | null = null;
+const allowedCorsOrigins = env.CORS_ORIGIN.split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
 
 function getUnifiedRedisHealth() {
   const singleton = getRedisClientHealth();
@@ -53,11 +58,35 @@ function getUnifiedRedisHealth() {
 }
 
 // ---------------------------------------------------------------------------
+// Security headers
+// ---------------------------------------------------------------------------
+app.use(securityHeadersMiddleware);
+
+// ---------------------------------------------------------------------------
 // CORS — before everything else
 // ---------------------------------------------------------------------------
+app.use((req, res, next) => {
+  const requestOrigin = req.headers.origin;
+
+  if (!requestOrigin || allowedCorsOrigins.includes('*')) {
+    next();
+    return;
+  }
+
+  if (!allowedCorsOrigins.includes(requestOrigin)) {
+    res.status(403).json({
+      error: 'Forbidden',
+      message: 'Origin is not allowed by CORS policy',
+    });
+    return;
+  }
+
+  next();
+});
+
 app.use(
   cors({
-    origin: env.CORS_ORIGIN,
+    origin: allowedCorsOrigins,
     credentials: env.CORS_CREDENTIALS,
   })
 );
@@ -258,25 +287,7 @@ async function startServer() {
 
     if (env.ENABLE_AUDIT_LOGGING) {
       auditService = createAuditService(sharedPool, env.AUDIT_LOG_RETENTION_DAYS);
-
-      // Run retention cleanup once per day.
-      auditCleanupInterval = setInterval(
-        async () => {
-          if (!auditService) {
-            return;
-          }
-
-          try {
-            const deletedCount = await auditService.cleanOldLogs();
-            if (deletedCount > 0) {
-              console.log(`🧹 Audit cleanup removed ${deletedCount} old log(s)`);
-            }
-          } catch (error) {
-            console.error('Audit cleanup failed:', error);
-          }
-        },
-        24 * 60 * 60 * 1000
-      );
+      auditCleanupInterval = startAuditCleanupJob(auditService);
 
       console.log('✅ Audit logging initialized');
     }

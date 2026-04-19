@@ -116,7 +116,7 @@ router.post(
   '/webhooks/:provider',
   captureRawBody,
   parseJsonAfterRaw,
-  async (req: Request, res: Response): Promise<void> => {
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     const { provider } = req.params;
     const config = PROVIDERS[provider.toLowerCase()];
 
@@ -205,10 +205,7 @@ router.post(
       });
     } catch (err) {
       console.error('[webhook] Failed to enqueue job:', err);
-      res.status(500).json({
-        error: 'Queue error',
-        message: err instanceof Error ? err.message : 'Failed to enqueue webhook',
-      });
+      next(err);
     }
   }
 );

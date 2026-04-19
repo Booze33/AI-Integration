@@ -10,7 +10,7 @@
  * - Error handling and recovery
  */
 
-import express, { Router as ExpressRouter, Request, Response } from 'express';
+import express, { Router as ExpressRouter, Request, Response, NextFunction } from 'express';
 import { getProvider, ChatMessage, ChatOptions } from '../providers';
 import type { AIProvider } from '../providers';
 import { randomUUID } from 'crypto';
@@ -274,59 +274,64 @@ export function createChatRoutes(pool: Pool): ExpressRouter {
     '/chat',
     authenticate as any,
     requireViewer as any,
-    async (req: Request, res: Response) => {
-      const authReq = req as AuthenticatedRequest;
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const authReq = req as AuthenticatedRequest;
 
-      // If this route is called without valid session, auth middleware handles response.
-      if (!authReq.user) {
-        return;
-      }
+        // If this route is called without valid session, auth middleware handles response.
+        if (!authReq.user) {
+          return;
+        }
 
-      // Validate request body
-      const body = req.body as ChatRequestBody;
+        // Validate request body
+        const body = req.body as ChatRequestBody;
 
-      if (!body.messages || !Array.isArray(body.messages) || body.messages.length === 0) {
-        res.status(400).json({
-          error: 'Invalid request',
-          message: 'messages array is required and must not be empty',
-        });
-        return;
-      }
-
-      // Validate message format
-      for (const msg of body.messages) {
-        if (!msg.role || !msg.content) {
+        if (!body.messages || !Array.isArray(body.messages) || body.messages.length === 0) {
           res.status(400).json({
-            error: 'Invalid message format',
-            message: 'Each message must have role and content',
+            error: 'Invalid request',
+            message: 'messages array is required and must not be empty',
           });
           return;
         }
-        if (!['system', 'user', 'assistant', 'function'].includes(msg.role)) {
-          res.status(400).json({
-            error: 'Invalid message role',
-            message: 'Role must be one of: system, user, assistant, function',
-          });
-          return;
+
+        // Validate message format
+        for (const msg of body.messages) {
+          if (!msg.role || !msg.content) {
+            res.status(400).json({
+              error: 'Invalid message format',
+              message: 'Each message must have role and content',
+            });
+            return;
+          }
+          if (!['system', 'user', 'assistant', 'function'].includes(msg.role)) {
+            res.status(400).json({
+              error: 'Invalid message role',
+              message: 'Role must be one of: system, user, assistant, function',
+            });
+            return;
+          }
         }
-      }
 
-      // Check for reconnect (via Last-Event-ID header or streamId in body)
-      const lastEventId = req.headers['last-event-id'] as string | undefined;
-      const reconnectStreamId = lastEventId || body.streamId;
+        // Check for reconnect (via Last-Event-ID header or streamId in body)
+        const lastEventId = req.headers['last-event-id'] as string | undefined;
+        const reconnectStreamId = lastEventId || body.streamId;
 
-      if (reconnectStreamId) {
-        const existingStream = await getStreamState(reconnectStreamId);
-        if (existingStream) {
-          // Resume existing stream
-          await resumeStream(req, res, existingStream);
-          return;
+        if (reconnectStreamId) {
+          const existingStream = await getStreamState(reconnectStreamId);
+          if (existingStream) {
+            // Resume existing stream
+            await resumeStream(req, res, existingStream);
+            return;
+          }
+          // If stream not found, start a new one (client will get full response)
         }
-        // If stream not found, start a new one (client will get full response)
-      }
 
-      // Start new stream
-      await startNewStream(authReq, res, body, authReq.user, pool);
+        // Start new stream
+        await startNewStream(authReq, res, body, authReq.user, pool);
+      } catch (error) {
+        console.error('Chat route error:', error);
+        next(error);
+      }
     }
   );
 
@@ -334,7 +339,7 @@ export function createChatRoutes(pool: Pool): ExpressRouter {
     '/chat/transcribe/session',
     authenticate as any,
     requireViewer as any,
-    async (req: AuthenticatedRequest, res: Response) => {
+    async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
       try {
         if (!req.user) {
           res.status(401).json({ error: 'Unauthorized', message: 'Not authenticated' });
@@ -403,10 +408,7 @@ export function createChatRoutes(pool: Pool): ExpressRouter {
         res.status(201).json({ sessionId });
       } catch (error) {
         console.error('Transcription session create error:', error);
-        res.status(500).json({
-          error: 'Failed to create transcription session',
-          message: error instanceof Error ? error.message : 'Unknown error',
-        });
+        next(error);
       }
     }
   );
@@ -475,7 +477,7 @@ export function createChatRoutes(pool: Pool): ExpressRouter {
     authenticate as any,
     requireViewer as any,
     express.raw({ type: '*/*' }),
-    async (req: AuthenticatedRequest, res: Response) => {
+    async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
       try {
         if (!req.user) {
           res.status(401).json({ error: 'Unauthorized', message: 'Not authenticated' });
@@ -503,10 +505,7 @@ export function createChatRoutes(pool: Pool): ExpressRouter {
         res.json({ success: true });
       } catch (error) {
         console.error('Transcription send error:', error);
-        res.status(500).json({
-          error: 'Failed to send audio data',
-          message: error instanceof Error ? error.message : 'Unknown error',
-        });
+        next(error);
       }
     }
   );
@@ -520,7 +519,7 @@ export function createChatRoutes(pool: Pool): ExpressRouter {
     '/chat/transcribe/:sessionId',
     authenticate as any,
     requireViewer as any,
-    async (req: AuthenticatedRequest, res: Response) => {
+    async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
       try {
         if (!req.user) {
           res.status(401).json({ error: 'Unauthorized', message: 'Not authenticated' });
@@ -537,9 +536,7 @@ export function createChatRoutes(pool: Pool): ExpressRouter {
         res.json({ success: true });
       } catch (error) {
         console.error('Session close error:', error);
-        res
-          .status(500)
-          .json({ error: 'Close failed', message: 'Failed to close transcription session' });
+        next(error);
       }
     }
   );
@@ -553,7 +550,7 @@ export function createChatRoutes(pool: Pool): ExpressRouter {
     '/chat/history',
     authenticate as any,
     requireViewer as any,
-    async (req: AuthenticatedRequest, res: Response) => {
+    async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
       try {
         if (!req.user) {
           res.status(401).json({ error: 'Unauthorized', message: 'Not authenticated' });
@@ -568,10 +565,7 @@ export function createChatRoutes(pool: Pool): ExpressRouter {
         });
       } catch (error) {
         console.error('Failed to fetch chat history:', error);
-        res.status(500).json({
-          error: 'Failed to fetch chat history',
-          message: error instanceof Error ? error.message : 'Unknown error',
-        });
+        next(error);
       }
     }
   );
@@ -585,7 +579,7 @@ export function createChatRoutes(pool: Pool): ExpressRouter {
     '/chat/history',
     authenticate as any,
     requireViewer as any,
-    async (req: AuthenticatedRequest, res: Response) => {
+    async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
       try {
         if (!req.user) {
           res.status(401).json({ error: 'Unauthorized', message: 'Not authenticated' });
@@ -635,10 +629,7 @@ export function createChatRoutes(pool: Pool): ExpressRouter {
         res.json({ success: true });
       } catch (error) {
         console.error('Failed to save chat history:', error);
-        res.status(500).json({
-          error: 'Failed to save chat history',
-          message: error instanceof Error ? error.message : 'Unknown error',
-        });
+        next(error);
       }
     }
   );

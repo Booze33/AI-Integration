@@ -10,7 +10,7 @@
  * - DELETE /jobs/:jobId - Delete job and associated file
  */
 
-import { Router as ExpressRouter, Request, Response } from 'express';
+import { Router as ExpressRouter, Request, Response, NextFunction } from 'express';
 import multer from 'multer';
 import { authenticate, requireViewer } from '../auth/middleware';
 import { getPipelineService } from './singleton';
@@ -54,7 +54,7 @@ router.post(
   authenticate as any,
   requireViewer as any,
   uploadSingle,
-  async (req: Request, res: Response) => {
+  async (req: Request, res: Response, next: NextFunction) => {
     try {
       if (!req.file) {
         res.status(400).json({
@@ -109,10 +109,7 @@ router.post(
       });
     } catch (error) {
       console.error('Upload error:', error);
-      res.status(500).json({
-        error: 'Processing failed',
-        message: error instanceof Error ? error.message : 'Unknown error',
-      });
+      next(error);
     }
   }
 );
@@ -128,7 +125,7 @@ router.post(
   authenticate as any,
   requireViewer as any,
   uploadSingle,
-  async (req: Request, res: Response) => {
+  async (req: Request, res: Response, next: NextFunction) => {
     try {
       await pipelineService.ensureQueueReady();
 
@@ -162,10 +159,7 @@ router.post(
       });
     } catch (error) {
       console.error('Upload error:', error);
-      res.status(500).json({
-        error: 'Upload failed',
-        message: error instanceof Error ? error.message : 'Unknown error',
-      });
+      next(error);
     }
   }
 );
@@ -299,7 +293,7 @@ router.delete(
   '/jobs/:jobId',
   authenticate as any,
   requireViewer as any,
-  async (req: Request, res: Response) => {
+  async (req: Request, res: Response, next: NextFunction) => {
     const { jobId } = req.params;
 
     const job = pipelineService.getJobStatus(jobId);
@@ -323,10 +317,7 @@ router.delete(
       });
     } catch (error) {
       console.error('Delete error:', error);
-      res.status(500).json({
-        error: 'Failed to delete job',
-        message: error instanceof Error ? error.message : 'Unknown error',
-      });
+      next(error);
     }
   }
 );

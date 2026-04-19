@@ -62,6 +62,9 @@ export default function ActiveSessionsPage() {
       if (err instanceof ApiError && err.statusCode === 401) {
         setError(err.message);
       } else {
+        setError(
+          err instanceof Error ? err.message : 'Network error while revoking session token.'
+        );
         showToast('Network error while revoking session token.', 'error');
       }
     } finally {

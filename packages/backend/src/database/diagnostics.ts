@@ -9,7 +9,7 @@
  * - System health checks
  */
 
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import { MetricsCollector } from './metrics';
 import { CacheManager } from './cache';
 import { QueryOptimizer } from './optimizer';
@@ -210,7 +210,7 @@ export function createDiagnosticsRouter(ctx: DiagnosticsContext): Router {
    * POST /diagnostics/cache/clear
    * Clear cache
    */
-  router.post('/cache/clear', async (_req: Request, res: Response) => {
+  router.post('/cache/clear', async (_req: Request, res: Response, next: NextFunction) => {
     if (!ctx.cacheManager) {
       res.status(503).json({ error: 'Cache not available' });
       return;
@@ -220,7 +220,7 @@ export function createDiagnosticsRouter(ctx: DiagnosticsContext): Router {
       await ctx.cacheManager.clear();
       res.json({ message: 'Cache cleared' });
     } catch (error) {
-      res.status(500).json({ error: (error as Error).message });
+      next(error);
     }
   });
 
@@ -228,7 +228,7 @@ export function createDiagnosticsRouter(ctx: DiagnosticsContext): Router {
    * POST /diagnostics/cache/invalidate-tag
    * Invalidate cache by tag
    */
-  router.post('/cache/invalidate-tag', async (req: Request, res: Response) => {
+  router.post('/cache/invalidate-tag', async (req: Request, res: Response, next: NextFunction) => {
     if (!ctx.cacheManager) {
       res.status(503).json({ error: 'Cache not available' });
       return;
@@ -245,7 +245,7 @@ export function createDiagnosticsRouter(ctx: DiagnosticsContext): Router {
       const count = await ctx.cacheManager.invalidateTag(tag);
       res.json({ message: `Invalidated ${count} cache entries`, count });
     } catch (error) {
-      res.status(500).json({ error: (error as Error).message });
+      next(error);
     }
   });
 
@@ -253,26 +253,29 @@ export function createDiagnosticsRouter(ctx: DiagnosticsContext): Router {
    * POST /diagnostics/cache/invalidate-prefix
    * Invalidate cache by prefix
    */
-  router.post('/cache/invalidate-prefix', async (req: Request, res: Response) => {
-    if (!ctx.cacheManager) {
-      res.status(503).json({ error: 'Cache not available' });
-      return;
-    }
+  router.post(
+    '/cache/invalidate-prefix',
+    async (req: Request, res: Response, next: NextFunction) => {
+      if (!ctx.cacheManager) {
+        res.status(503).json({ error: 'Cache not available' });
+        return;
+      }
 
-    const { prefix } = req.body;
+      const { prefix } = req.body;
 
-    if (!prefix) {
-      res.status(400).json({ error: 'Prefix required' });
-      return;
-    }
+      if (!prefix) {
+        res.status(400).json({ error: 'Prefix required' });
+        return;
+      }
 
-    try {
-      const count = await ctx.cacheManager.invalidatePrefix(prefix);
-      res.json({ message: `Invalidated ${count} cache entries`, count });
-    } catch (error) {
-      res.status(500).json({ error: (error as Error).message });
+      try {
+        const count = await ctx.cacheManager.invalidatePrefix(prefix);
+        res.json({ message: `Invalidated ${count} cache entries`, count });
+      } catch (error) {
+        next(error);
+      }
     }
-  });
+  );
 
   // ========================================================================
   // Query Performance Endpoints

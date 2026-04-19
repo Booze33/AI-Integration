@@ -151,8 +151,11 @@ export class OptimizedConnectionPool {
 
     try {
       if (timeoutMs) {
-        // Use statement timeout
-        await client.query(`SET statement_timeout = ${timeoutMs}`);
+        const safeTimeoutMs = Math.max(1, Math.trunc(timeoutMs));
+        await client.query('SELECT set_config($1, $2, false)', [
+          'statement_timeout',
+          String(safeTimeoutMs),
+        ]);
       }
 
       return await client.query<any>(queryString, values);

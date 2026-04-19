@@ -516,10 +516,7 @@ export function createTenantMiddleware(tenantDb: TenantDatabase) {
       next();
     } catch (error) {
       console.error('Error setting tenant context:', error);
-      res.status(500).json({
-        error: 'Internal server error',
-        message: 'Failed to set tenant context',
-      });
+      next(error);
     }
   };
 }

@@ -1,4 +1,4 @@
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import bcrypt from 'bcryptjs';
 import { Pool } from 'pg';
 import { TenantDatabase } from '../database/tenant-context';
@@ -11,7 +11,7 @@ import {
   revokeAllUserTokens,
   getUserActiveTokens,
 } from '../redis/client';
-import { InputSanitizer } from '../audit';
+import { InputSanitizer, logAudit, getClientInfo } from '../audit';
 
 const router: Router = Router();
 
@@ -171,11 +171,34 @@ function isValidEmailAddress(value: unknown): value is string {
   return typeof value === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
+async function auditAuthEvent(
+  req: Request,
+  event: {
+    tenantId: string;
+    userId: string;
+    action: string;
+    statusCode: number;
+    errorMessage?: string;
+  }
+): Promise<void> {
+  const clientInfo = req.clientInfo || getClientInfo(req);
+  await logAudit(req.auditService, {
+    tenantId: event.tenantId,
+    userId: event.userId,
+    action: event.action,
+    resource: 'AUTH',
+    ipAddress: clientInfo.ipAddress,
+    userAgent: clientInfo.userAgent,
+    statusCode: event.statusCode,
+    errorMessage: event.errorMessage,
+  });
+}
+
 /**
  * POST /auth/register
  * Register a new user
  */
-router.post('/register', async (req: Request, res: Response): Promise<void> => {
+router.post('/register', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const { email: rawEmail, password, role = 'member' } = req.body;
     const email = InputSanitizer.sanitizeEmail(rawEmail);
@@ -260,12 +283,16 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
       accessToken,
       refreshToken,
     });
+
+    await auditAuthEvent(req, {
+      tenantId,
+      userId: user.id,
+      action: 'REGISTER',
+      statusCode: 201,
+    });
   } catch (error) {
     console.error('Registration error:', error);
-    res.status(500).json({
-      error: 'Internal Server Error',
-      message: 'Failed to register user',
-    });
+    next(error);
   }
 });
 
@@ -273,7 +300,7 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
  * POST /auth/login
  * Authenticate user and return tokens
  */
-router.post('/login', async (req: Request, res: Response): Promise<void> => {
+router.post('/login', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const { email: rawEmail, password: rawPassword } = req.body;
     const email = InputSanitizer.sanitizeEmail(rawEmail);
@@ -331,12 +358,16 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
       accessToken,
       refreshToken,
     });
+
+    await auditAuthEvent(req, {
+      tenantId,
+      userId: user.id,
+      action: 'LOGIN',
+      statusCode: 200,
+    });
   } catch (error) {
     console.error('Login error:', error);
-    res.status(500).json({
-      error: 'Internal Server Error',
-      message: 'Failed to login',
-    });
+    next(error);
   }
 });
 
@@ -440,37 +471,42 @@ router.post('/refresh', async (req: Request, res: Response): Promise<void> => {
 router.get(
   '/me',
   authenticate as any,
-  async (req: AuthenticatedRequest, res: Response): Promise<void> => {
-    if (!req.user) {
-      res.status(401).json({
-        error: 'Unauthorized',
-        message: 'Not authenticated',
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      if (!req.user) {
+        res.status(401).json({
+          error: 'Unauthorized',
+          message: 'Not authenticated',
+        });
+        return;
+      }
+
+      const tenantId = req.user.tenantId || DEFAULT_TENANT_ID;
+      const user = await findUserById(req.user.userId, tenantId);
+
+      if (!user) {
+        res.status(404).json({
+          error: 'Not Found',
+          message: 'User not found',
+        });
+        return;
+      }
+
+      const role = req.user.role || (await getUserRole(tenantId, user.id)) || 'member';
+
+      res.json({
+        user: {
+          id: user.id,
+          email: user.email,
+          role,
+          tenantId,
+          createdAt: user.created_at,
+        },
       });
-      return;
+    } catch (error) {
+      console.error('Get current user error:', error);
+      next(error);
     }
-
-    const tenantId = req.user.tenantId || DEFAULT_TENANT_ID;
-    const user = await findUserById(req.user.userId, tenantId);
-
-    if (!user) {
-      res.status(404).json({
-        error: 'Not Found',
-        message: 'User not found',
-      });
-      return;
-    }
-
-    const role = req.user.role || (await getUserRole(tenantId, user.id)) || 'member';
-
-    res.json({
-      user: {
-        id: user.id,
-        email: user.email,
-        role,
-        tenantId,
-        createdAt: user.created_at,
-      },
-    });
   }
 );
 
@@ -481,6 +517,8 @@ router.get(
 router.post('/logout', async (req: Request, res: Response): Promise<void> => {
   try {
     const cookieHeader = req.headers.cookie;
+    let auditUserId = 'unknown';
+    let auditTenantId = DEFAULT_TENANT_ID;
     let refreshToken: string | undefined =
       typeof req.body?.refreshToken === 'string' ? req.body.refreshToken : undefined;
 
@@ -497,6 +535,8 @@ router.post('/logout', async (req: Request, res: Response): Promise<void> => {
     if (refreshToken) {
       try {
         const decoded = verifyToken(refreshToken) as DecodedRefreshToken;
+        auditUserId = decoded.userId;
+        auditTenantId = decoded.tenantId || DEFAULT_TENANT_ID;
         await revokeRefreshToken(decoded.tokenId);
       } catch {
         // Token invalid, but still return success
@@ -508,6 +548,13 @@ router.post('/logout', async (req: Request, res: Response): Promise<void> => {
 
     res.json({
       message: 'Logged out successfully',
+    });
+
+    await auditAuthEvent(req, {
+      tenantId: auditTenantId,
+      userId: auditUserId,
+      action: 'LOGOUT',
+      statusCode: 200,
     });
   } catch (error) {
     console.error('Logout error:', error);
@@ -524,7 +571,7 @@ router.post('/logout', async (req: Request, res: Response): Promise<void> => {
 router.post(
   '/logout-all',
   authenticate as any,
-  async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
     try {
       if (!req.user) {
         res.status(401).json({
@@ -541,10 +588,7 @@ router.post(
       });
     } catch (error) {
       console.error('Logout all error:', error);
-      res.status(500).json({
-        error: 'Internal Server Error',
-        message: 'Failed to logout from all devices',
-      });
+      next(error);
     }
   }
 );
@@ -556,7 +600,7 @@ router.post(
 router.get(
   '/tokens',
   authenticate as any,
-  async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
     try {
       if (!req.user) {
         res.status(401).json({
@@ -574,10 +618,7 @@ router.get(
       });
     } catch (error) {
       console.error('Get tokens error:', error);
-      res.status(500).json({
-        error: 'Internal Server Error',
-        message: 'Failed to get active tokens',
-      });
+      next(error);
     }
   }
 );
@@ -589,7 +630,7 @@ router.get(
 router.delete(
   '/tokens/:tokenId',
   authenticate as any,
-  async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
     try {
       if (!req.user) {
         res.status(401).json({
@@ -618,10 +659,7 @@ router.delete(
       });
     } catch (error) {
       console.error('Revoke token error:', error);
-      res.status(500).json({
-        error: 'Internal Server Error',
-        message: 'Failed to revoke token',
-      });
+      next(error);
     }
   }
 );
