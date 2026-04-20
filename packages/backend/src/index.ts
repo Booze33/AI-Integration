@@ -2,6 +2,8 @@ import 'dotenv/config';
 import cors from 'cors';
 import express from 'express';
 import { createServer } from 'http';
+import type { Server as HttpServer } from 'http';
+import type { Socket } from 'net';
 import { Pool } from 'pg';
 import { setupOptimizedDatabase } from './database';
 import { createDiagnosticsRouter } from './database/diagnostics';
@@ -42,6 +44,10 @@ const app = express();
 let sharedPool: Pool | null = null;
 let auditService: AuditService | null = null;
 let auditCleanupInterval: NodeJS.Timeout | null = null;
+let httpServer: HttpServer | null = null;
+const openSockets = new Set<Socket>();
+let isShuttingDown = false;
+const SHUTDOWN_TIMEOUT_MS = Number(process.env.SHUTDOWN_TIMEOUT_MS || 15_000);
 const allowedCorsOrigins = env.CORS_ORIGIN.split(',')
   .map((origin) => origin.trim())
   .filter(Boolean);
@@ -293,10 +299,17 @@ async function startServer() {
     }
 
     const port = env.PORT;
-    const server = createServer(app);
-    registerChatWebSocket(server, sharedPool!);
+    httpServer = createServer(app);
+    registerChatWebSocket(httpServer, sharedPool!);
 
-    server.listen(port, env.HOST, () => {
+    httpServer.on('connection', (socket: Socket) => {
+      openSockets.add(socket);
+      socket.on('close', () => {
+        openSockets.delete(socket);
+      });
+    });
+
+    httpServer.listen(port, env.HOST, () => {
       console.log(`🚀 Backend running on http://${env.HOST}:${port}`);
       console.log(`📊 Health check: http://localhost:${port}/health`);
       console.log(`🔌 WebSocket chat: ws://${env.HOST}:${port}/ws/chat`);
@@ -321,7 +334,60 @@ process.on('unhandledRejection', (reason: unknown) => {
 });
 
 async function shutdown(): Promise<void> {
+  if (isShuttingDown) {
+    return;
+  }
+  isShuttingDown = true;
+
   console.log('Shutting down gracefully...');
+
+  if (httpServer) {
+    const serverRef = httpServer;
+    const closeServerPromise = new Promise<void>((resolve, reject) => {
+      serverRef.close((error?: Error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve();
+      });
+    });
+
+    let shutdownTimer: NodeJS.Timeout | null = null;
+    const timeoutPromise = new Promise<'timeout'>((resolve) => {
+      shutdownTimer = setTimeout(() => {
+        resolve('timeout');
+      }, SHUTDOWN_TIMEOUT_MS);
+    });
+
+    try {
+      const closeResult = await Promise.race([
+        closeServerPromise.then(() => 'closed' as const),
+        timeoutPromise,
+      ]);
+
+      if (closeResult === 'timeout') {
+        console.warn(
+          `⚠️ Server did not close within ${SHUTDOWN_TIMEOUT_MS}ms, destroying open sockets...`
+        );
+        for (const socket of openSockets) {
+          socket.destroy();
+        }
+        await closeServerPromise;
+      }
+
+      console.log('✅ HTTP server closed');
+    } catch (error) {
+      console.error('Error closing HTTP server:', error);
+    } finally {
+      if (shutdownTimer) {
+        clearTimeout(shutdownTimer);
+      }
+      httpServer = null;
+      openSockets.clear();
+    }
+  }
+
   if (auditCleanupInterval) {
     clearInterval(auditCleanupInterval);
     auditCleanupInterval = null;

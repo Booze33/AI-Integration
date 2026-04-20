@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import { apiClient, ChatHistorySession } from '../../lib/api-client';
 import { apiFetch } from '../../lib/api/client';
 import { getLoginRedirectPathForCurrentLocation } from '../../lib/auth-redirect';
+import { useFocusTrap } from '../../lib/useFocusTrap';
+import { usePageTitle } from '../../lib/usePageTitle';
 import { useChatStream } from '../../lib/useChatStream';
 
 interface ChatMessage {
@@ -207,6 +209,7 @@ function getHistoryPreview(session: ChatHistorySession): string {
 }
 
 export default function ChatPage() {
+  usePageTitle('Chat | AI Integration Platform');
   const router = useRouter();
   const [user, setUser] = useState<UserInfo | null>(null);
   const [isAuthResolved, setIsAuthResolved] = useState(false);
@@ -251,6 +254,7 @@ export default function ChatPage() {
   const microphoneStreamRef = useRef<MediaStream | null>(null);
   const silenceTimeoutRef = useRef<number | null>(null);
   const transcriptionSessionIdRef = useRef<string | null>(null);
+  const historyDrawerRef = useRef<HTMLDivElement | null>(null);
 
   const composerValue = useMemo(() => voiceTranscript || input, [input, voiceTranscript]);
   const userMessageText = useMemo(() => composerValue.trim(), [composerValue]);
@@ -278,6 +282,7 @@ export default function ChatPage() {
     const start = (boundedPage - 1) * HISTORY_PAGE_SIZE;
     return filteredHistorySessions.slice(start, start + HISTORY_PAGE_SIZE);
   }, [filteredHistorySessions, historyPage, totalHistoryPages]);
+  useFocusTrap(isHistoryOpen, historyDrawerRef, () => setIsHistoryOpen(false));
 
   useEffect(() => {
     const savedHistory = localStorage.getItem(STORAGE_KEYS.history);
@@ -330,21 +335,6 @@ export default function ChatPage() {
       setHistoryPage(totalHistoryPages);
     }
   }, [historyPage, totalHistoryPages]);
-
-  useEffect(() => {
-    if (!isHistoryOpen) return;
-
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setIsHistoryOpen(false);
-      }
-    };
-
-    window.addEventListener('keydown', handleEscape);
-    return () => {
-      window.removeEventListener('keydown', handleEscape);
-    };
-  }, [isHistoryOpen]);
 
   const ensureAssistantDraft = useCallback(() => {
     setMessages((prev) => {
@@ -1172,7 +1162,11 @@ export default function ChatPage() {
           {/* Text Input */}
           <div className="mx-auto flex max-w-4xl items-end gap-2">
             <div className="flex-1 space-y-2">
+              <label htmlFor="chat-message-input" className="sr-only">
+                Message input
+              </label>
               <textarea
+                id="chat-message-input"
                 ref={textareaRef}
                 rows={1}
                 value={composerValue}
@@ -1248,9 +1242,18 @@ export default function ChatPage() {
 
       {isHistoryOpen && (
         <div className="fixed inset-0 z-30 flex items-end bg-slate-900/30 md:items-stretch md:justify-end">
-          <div className="max-h-[80vh] w-full overflow-y-auto rounded-t-2xl border border-slate-200 bg-white p-4 shadow-2xl md:h-full md:max-h-none md:max-w-md md:rounded-none md:border-l md:border-t-0">
+          <div
+            ref={historyDrawerRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="chat-history-title"
+            tabIndex={-1}
+            className="max-h-[80vh] w-full overflow-y-auto rounded-t-2xl border border-slate-200 bg-white p-4 shadow-2xl md:h-full md:max-h-none md:max-w-md md:rounded-none md:border-l md:border-t-0"
+          >
             <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-slate-900">Conversation History</h2>
+              <h2 id="chat-history-title" className="text-lg font-semibold text-slate-900">
+                Conversation History
+              </h2>
               <button
                 type="button"
                 onClick={() => setIsHistoryOpen(false)}
@@ -1279,7 +1282,11 @@ export default function ChatPage() {
 
             {!isHistoryLoading && !historyError && (
               <div className="space-y-3">
+                <label htmlFor="chat-history-search" className="sr-only">
+                  Search conversation history
+                </label>
                 <input
+                  id="chat-history-search"
                   value={historySearchTerm}
                   onChange={(event) => setHistorySearchTerm(event.target.value)}
                   placeholder="Search history..."
