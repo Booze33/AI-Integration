@@ -1,353 +1,270 @@
-# AI Integration
+# AI Integration Boilerplate
 
-Single-repo starter for building multi-tenant AI products with:
+A production-oriented monorepo starter for building multi-tenant AI SaaS products.
 
-- Express backend with modular provider adapters (OpenAI, Anthropic, Deepgram, ElevenLabs)
-- Next.js frontend with chat, upload, and voice UX flows
-- Streaming responses over SSE and WebSocket
-- JWT auth (RS256), refresh-token rotation, role guards
-- Redis-backed rate limiting and webhook job queueing
-- Docker Compose for local Postgres + Redis
+In 60 seconds: this boilerplate gives you an Express backend (auth, chat streaming, file pipeline, webhooks, diagnostics), a Next.js frontend (auth, dashboard, chat, upload, settings), PostgreSQL + Redis local infrastructure, and pre-wired multi-tenant patterns with role-based access.
 
-This README is the one setup document developers should follow before running the project.
+## Prerequisites
 
-## 1) Prerequisites
+Install these before running the project:
 
-Install these first:
-
-- Node.js 20.19.0 (minimum)
-- pnpm 10+
-- Docker Desktop (or Docker Engine + Compose plugin)
+- Node.js: >= 20.19.0
+- pnpm: >= 10
+- Docker Engine/Desktop
+- Docker Compose (plugin or standalone)
 - Git
 
-Why this exact Node floor:
+Why Node >= 20.19.0: the repo uses ESLint 10 packages requiring modern Node runtime support.
 
-- This repo uses ESLint 10 packages that require Node `^20.19.0` (or newer major lines).
-- If your Node version is below 20.19.0, lint/dev scripts can fail even if app code compiles.
+## Quick Start (under 10 commands)
 
-Make sure these ports are free:
-
-- `3000` (frontend)
-- `3001` (backend)
-- `5433` (Postgres from Docker)
-- `6379` (Redis from Docker)
-
-Important local DB note:
-
-- Docker Postgres in this repo runs on `5433`, not `5432`.
-- If you also run a host Postgres on `5432`, keep `DATABASE_URL` pointed at `5433` to avoid auth conflicts.
-
-## 2) Clone And Install
+From a clean machine to running app:
 
 ```bash
 git clone <your-repo-url>
 cd AI-Integration
 pnpm install
-```
-
-Use pnpm for workspace dependency changes:
-
-```bash
-pnpm --filter backend add <package-name>
-pnpm --filter frontend add <package-name>
-```
-
-## 3) Start Local Infrastructure
-
-Start only infrastructure services first:
-
-```bash
-docker compose up -d postgres redis
-docker compose ps
-```
-
-Expected endpoints:
-
-- Postgres: `localhost:5433` (`postgres/postgres`, db: `ai_initializer`)
-- Redis: `localhost:6379` (password: `redis`)
-
-## 4) Environment Variables
-
-### 4.1 Backend env
-
-Copy the template and set values:
-
-```bash
 cp .env.example .env
-```
-
-Minimum values you must verify before first run:
-
-```env
-NODE_ENV=development
-PORT=3001
-HOST=0.0.0.0
-
-DATABASE_URL=postgresql://postgres:postgres@localhost:5433/ai_initializer
-REDIS_URL=redis://:redis@localhost:6379
-
-# exactly 32 chars
-TENANT_CONFIG_ENCRYPTION_KEY=replace-with-32-char-key-123456
-
-# provider switch (single-line provider selection)
-ACTIVE_AI_PROVIDER=openai
-AI_API_KEY=your-provider-key
-
-CORS_ORIGIN=http://localhost:3000
-```
-
-Notes:
-
-- Backend validates env on startup and exits fast if required values are missing/invalid.
-- Webhook secrets are optional for local dev, but must be set for signature verification:
-  - `GITHUB_WEBHOOK_SECRET`
-  - `STRIPE_WEBHOOK_SECRET`
-  - `GITLAB_WEBHOOK_SECRET`
-  - `GENERIC_WEBHOOK_SECRET`
-
-### 4.2 JWT key setup (RS256)
-
-You have two valid options:
-
-- Option A: keep `JWT_PRIVATE_KEY` and `JWT_PUBLIC_KEY` empty in `.env` and generate key files on disk.
-- Option B: paste PEM strings into env vars.
-
-Recommended local path (Option A):
-
-```bash
+docker compose up -d postgres redis
 pnpm --filter backend run generate-keys
-```
-
-This creates:
-
-- `packages/backend/keys/private.pem`
-- `packages/backend/keys/public.pem`
-
-### 4.3 Frontend env
-
-Create `packages/frontend/.env.local`:
-
-```env
-NEXT_PUBLIC_API_URL=http://localhost:3001
-NEXT_PUBLIC_DEFAULT_TENANT_ID=default-tenant
-NEXT_PUBLIC_APP_NAME=AI Integration
-NEXT_PUBLIC_MOCK_MODE=false
-```
-
-`NEXT_PUBLIC_API_URL` and `NEXT_PUBLIC_DEFAULT_TENANT_ID` are required for production builds.
-
-## 5) Run The App
-
-From repository root:
-
-```bash
 pnpm dev
 ```
 
-What happens:
+Open:
 
-- Frontend starts on `http://localhost:3000`
-- Backend starts on `http://localhost:3001`
-- Backend runs DB migrations on startup automatically
+- Frontend: http://localhost:3000
+- Backend: http://localhost:3001
+- Health: http://localhost:3001/health
 
-Health checks:
+Notes:
 
-- `http://localhost:3001/health`
-- `http://localhost:3001/health/db`
-- `http://localhost:3001/health/redis`
-- `http://localhost:3001/health/detailed`
+- Local Docker Postgres is expected on host port 5433 in this repo setup.
+- Keep `DATABASE_URL` aligned to the running database port to avoid local auth collisions.
 
-## 6) First Login And Tenant Bootstrap
+## What This Boilerplate Includes
 
-There is no default admin user for first run.
+- Monorepo with backend, frontend, and shared types packages
+- JWT auth with access/refresh token flow and session revocation endpoints
+- Multi-tenant data model with tenant-scoped records
+- AI provider abstraction + per-tenant encrypted provider configs
+- Streaming chat over SSE and WebSocket
+- File upload + extraction/chunking pipeline (sync + async jobs)
+- Webhook ingestion and async queueing
+- Redis-based rate limiting and transient runtime stores
+- Diagnostics endpoints for health, metrics, cache and pool status
 
-Create one via UI:
+## Monorepo Architecture
 
-1. Open `http://localhost:3000/register`
-2. Register with email/password (password min length is 8)
+### Workspace layout
 
-Or create one via API:
+```text
+AI-Integration/
+  docs/
+  packages/
+    backend/   # Express API + workers + DB integrations
+    frontend/  # Next.js App Router UI
+    types/     # shared TS types package
+  docker-compose.yml
+  package.json
+```
+
+### Backend modules
+
+Primary backend folders in `packages/backend/src`:
+
+- `auth`: registration, login, refresh, profile, session token lifecycle
+- `chat`: SSE streaming, transcription session endpoints, chat history, WebSocket chat
+- `providers`: provider factory + tenant provider config CRUD
+- `pipeline`: upload and extraction/chunking pipeline with async job tracking
+- `webhook`: provider webhook verification + queue enqueueing
+- `dashboard`: user dashboard stats endpoints
+- `database`: DB setup, migrations, diagnostics, metrics, optimizer utilities
+- `rate-limit`: Redis-backed limiters
+- `redis`: Redis clients and token/stream helpers
+- `audit`: env validation, audit helpers, request metadata utilities
+- `security`: security headers and hardening middleware
+- `errors`, `logger`, `pagination`, `tracing`
+
+### Frontend pages
+
+Current App Router pages in `packages/frontend/src/app`:
+
+- `/` landing page
+- `/login` sign in
+- `/register` sign up
+- `/dashboard` authenticated overview
+- `/chat` streaming chat + history + voice transcription UI
+- `/chat/upload` chat upload flow
+- `/upload` file upload and pipeline jobs
+- `/settings` settings shell
+- `/settings/ai-providers` tenant AI provider management
+- `/settings/active-sessions` refresh token/session management
+- `/settings/general` general settings
+
+## Multi-Tenancy Model
+
+Tenant isolation is enforced by data modeling and tenant context propagation.
+
+How it works:
+
+- Users are stored with `tenant_id` and tenant-scoped role assignments.
+- Auth flows accept tenant context from:
+  - JWT `tenantId`
+  - request body `tenantId` or `tenant_id`
+  - `x-tenant-id` header (for relevant auth flows)
+- Tenant provider configs are queried and mutated per tenant.
+- Database schema includes tenant-scoped entities and policies/helpers for tenant context.
+
+Current tenant onboarding path in this boilerplate:
+
+1. Create tenant record in database (`tenant.tenants`) if you need a net-new tenant.
+2. Register user with tenant context (`tenantId` in request body or `x-tenant-id` header).
+3. Assign role (owner/admin/member/viewer) as needed.
+4. Configure tenant AI provider in `/api/tenant/config`.
+
+Example tenant-aware registration:
 
 ```bash
 curl -X POST http://localhost:3001/auth/register \
   -H "Content-Type: application/json" \
-  -d '{"email":"owner@example.com","password":"StrongPass123!","role":"owner"}'
+  -H "x-tenant-id: <tenant-uuid>" \
+  -d '{"email":"owner@acme.com","password":"StrongPass123!","role":"owner"}'
 ```
 
-Registration creates tenant context automatically when needed.
+## Add a New AI Provider
 
-## 7) One-Line AI Provider Switching
+Provider abstraction lives under `packages/backend/src/providers`.
 
-Swap global provider by editing one env line:
+Typical steps:
 
-```env
-ACTIVE_AI_PROVIDER=anthropic
-```
+1. Add provider name/type support in `packages/backend/src/providers/types.ts`.
+2. Implement provider class under `packages/backend/src/providers/implementations`.
+3. Wire provider selection in `packages/backend/src/providers/factory.ts`.
+4. Add any provider-specific config handling in tenant config service/repository if needed.
+5. Expose provider in provider list endpoint in `packages/backend/src/providers/routes.ts`.
+6. Add tests under `packages/backend/src/providers/__tests__`.
 
-Then provide the matching `AI_API_KEY` and restart backend.
+## Add a New Webhook Provider
 
-Supported built-in providers:
+Webhook verification and provider registry are in `packages/backend/src/webhook`.
 
-- `openai`
-- `anthropic`
-- `deepgram`
-- `elevenlabs`
+Typical steps:
 
-Per-tenant provider configs can also be managed via `/api/tenant/config`.
+1. Add verifier function (or reuse HMAC helper) in `packages/backend/src/webhook/verifiers.ts`.
+2. Add provider entry in `PROVIDERS` map in `packages/backend/src/webhook/routes.ts`:
+   - provider name
+   - signature header
+   - verifier function
+   - secret env variable key
+3. Add env key to `.env.example` and docs table below.
+4. Add tests under `packages/backend/src/webhook/__tests__`.
 
-## 8) Streaming, Uploads, Voice, Webhooks
+## Environment Variables
 
-Key runtime behavior:
+This project validates backend environment at startup.
 
-- Streaming chat endpoint: `POST /api/chat` (SSE)
-- Realtime chat socket: `ws://localhost:3001/ws/chat`
-- Upload pipeline: `/api/pipeline/*`
-- Webhooks: `POST /api/webhooks/:provider` (queued async via BullMQ)
+### Backend environment (`.env`)
 
-Webhook local test example:
+| Variable                       | Type                                    | Default                                | Description                                                               |
+| ------------------------------ | --------------------------------------- | -------------------------------------- | ------------------------------------------------------------------------- |
+| `NODE_ENV`                     | enum(`development`,`test`,`production`) | `development`                          | Runtime mode                                                              |
+| `PORT`                         | number                                  | `3001`                                 | Backend HTTP port                                                         |
+| `HOST`                         | string                                  | `0.0.0.0`                              | Backend bind host                                                         |
+| `DATABASE_URL`                 | string (url)                            | none                                   | PostgreSQL connection URL                                                 |
+| `REDIS_URL`                    | string (url)                            | none                                   | Redis connection URL                                                      |
+| `JWT_PRIVATE_KEY`              | string                                  | none                                   | PEM private key for token signing (optional if using key files)           |
+| `JWT_PUBLIC_KEY`               | string                                  | none                                   | PEM public key for token verification (optional if using key files)       |
+| `JWT_EXPIRY`                   | string                                  | `15m`                                  | Access token TTL                                                          |
+| `JWT_REFRESH_EXPIRY`           | string                                  | `7d`                                   | Refresh token TTL                                                         |
+| `TENANT_CONFIG_ENCRYPTION_KEY` | string (32 chars)                       | none                                   | Encryption key for tenant provider secrets                                |
+| `RATE_LIMIT_USER_MAX`          | number                                  | `100`                                  | Per-user requests per window                                              |
+| `RATE_LIMIT_TENANT_MAX`        | number                                  | `1000`                                 | Per-tenant requests per window                                            |
+| `RATE_LIMIT_IP_MAX`            | number                                  | `50`                                   | Per-IP requests per window                                                |
+| `RATE_LIMIT_WINDOW_MS`         | number                                  | `900000`                               | Rate limit window in ms                                                   |
+| `ENABLE_AUDIT_LOGGING`         | boolean (`true`/`false`)                | `true`                                 | Enable audit logging                                                      |
+| `AUDIT_LOG_RETENTION_DAYS`     | number                                  | `90`                                   | Audit retention period                                                    |
+| `CORS_ORIGIN`                  | string                                  | `http://localhost:3000`                | Allowed CORS origins (comma-separated supported)                          |
+| `CORS_CREDENTIALS`             | boolean (`true`/`false`)                | `true`                                 | Enable CORS credentials                                                   |
+| `MAX_FILE_SIZE`                | number                                  | `10485760`                             | Upload max bytes                                                          |
+| `ACTIVE_AI_PROVIDER`           | string                                  | `openai`                               | Globally active provider for provider factory                             |
+| `AI_API_KEY`                   | string                                  | none                                   | Global API key for active provider (optional for providers like `ollama`) |
+| `AI_BASE_URL`                  | string                                  | none                                   | Optional provider base URL override                                       |
+| `GITHUB_WEBHOOK_SECRET`        | string                                  | none                                   | GitHub webhook verification secret                                        |
+| `STRIPE_WEBHOOK_SECRET`        | string                                  | none                                   | Stripe webhook verification secret                                        |
+| `GITLAB_WEBHOOK_SECRET`        | string                                  | none                                   | GitLab webhook verification secret                                        |
+| `GENERIC_WEBHOOK_SECRET`       | string                                  | none                                   | Generic HMAC webhook secret                                               |
+| `DEFAULT_TENANT_ID`            | uuid string                             | `00000000-0000-0000-0000-000000000000` | Fallback tenant for registration/auth scenarios                           |
 
-```bash
-curl -X POST http://localhost:3001/api/webhooks/generic \
-  -H "Content-Type: application/json" \
-  -H "x-webhook-signature: <signature>" \
-  -d '{"event":"demo"}'
-```
+### Frontend environment (`packages/frontend/.env.local`)
 
-If webhook secret env vars are unset, signature verification is skipped in local dev.
+| Variable                        | Type                     | Default                         | Description                                  |
+| ------------------------------- | ------------------------ | ------------------------------- | -------------------------------------------- |
+| `NEXT_PUBLIC_API_URL`           | string (url)             | dev fallback in code            | Backend base URL used by frontend API client |
+| `NEXT_PUBLIC_DEFAULT_TENANT_ID` | string                   | `default-tenant` (dev fallback) | Default tenant id used by frontend flows     |
+| `NEXT_PUBLIC_APP_NAME`          | string                   | `AI Integration`                | Display name                                 |
+| `NEXT_PUBLIC_MOCK_MODE`         | boolean (`true`/`false`) | `false`                         | Enable frontend mock mode                    |
 
-## 9) Rate Limiting And Redis
+## Script Reference (all npm scripts)
 
-Rate limiting is enabled on `/api` and depends on Redis.
+### Root scripts (`package.json`)
 
-Tune with env vars:
-
-- `RATE_LIMIT_USER_MAX`
-- `RATE_LIMIT_TENANT_MAX`
-- `RATE_LIMIT_IP_MAX`
-- `RATE_LIMIT_WINDOW_MS`
-
-If Redis is unreachable, auth/session/queue features can fail. Always start Redis first.
-
-## 10) Deployment Env Management
-
-### Vercel (frontend)
-
-- Root directory: `packages/frontend`
-- Build command: `pnpm build`
-- Required envs:
-  - `NEXT_PUBLIC_API_URL`
-  - `NEXT_PUBLIC_DEFAULT_TENANT_ID`
-  - `NEXT_PUBLIC_MOCK_MODE=false`
-
-See full guide: `docs/Vercel-Deployment.md`.
-
-### Fly.io (backend)
-
-No `fly.toml` is committed in this repo. Generate one for `packages/backend` using `flyctl` and the existing Dockerfile.
-
-Set backend secrets in Fly (minimum):
-
-- `DATABASE_URL`
-- `REDIS_URL`
-- `TENANT_CONFIG_ENCRYPTION_KEY`
-- `JWT_PRIVATE_KEY` and `JWT_PUBLIC_KEY` (or mount keys)
-- `ACTIVE_AI_PROVIDER`
-- `AI_API_KEY`
-
-## 11) Useful Commands
-
-```bash
-# Start/stop local infra
-pnpm docker:up
-pnpm docker:down
-
-# Logs
-pnpm docker:logs
-
-# Build all packages
-pnpm build
-
-# Run backend tests
-pnpm --filter backend test
-
-# DB seed (optional demo data)
-pnpm --filter backend run seed
-```
-
-## 12) Complete pnpm Script Reference
-
-This section lists every script currently defined in the workspace and what each one does.
-
-### Root scripts (`/package.json`)
-
-- `pnpm dev:backend`: starts only the backend dev server (`packages/backend`).
-- `pnpm dev:frontend`: starts only the frontend dev server (`packages/frontend`).
-- `pnpm dev`: starts backend and frontend together via concurrently.
-- `pnpm build`: builds backend, then frontend.
-- `pnpm lint`: runs ESLint with `--fix` across the repo.
-- `pnpm format`: runs Prettier write on TS/JS/JSON/MD files.
-- `pnpm format:check`: runs Prettier check (no file writes).
-- `pnpm prepare`: installs Husky git hooks.
-- `pnpm docker:up`: runs `docker compose up -d`.
-- `pnpm docker:down`: runs `docker compose down`.
-- `pnpm docker:build`: builds Compose images.
-- `pnpm docker:logs`: tails Compose logs.
-- `pnpm docker:ps`: lists Compose container status.
+- `pnpm dev:backend` - run backend dev server only
+- `pnpm dev:frontend` - run frontend dev server only
+- `pnpm dev` - run backend + frontend together
+- `pnpm build` - build backend then frontend
+- `pnpm lint` - run eslint fix across repo
+- `pnpm format` - format files via prettier
+- `pnpm format:check` - check formatting only
+- `pnpm prepare` - install husky hooks
+- `pnpm docker:up` - docker compose up (detached)
+- `pnpm docker:down` - docker compose down
+- `pnpm docker:build` - build compose services
+- `pnpm docker:logs` - follow compose logs
+- `pnpm docker:ps` - list compose service status
 
 ### Backend scripts (`packages/backend/package.json`)
 
-- `pnpm --filter backend dev`: runs backend in watch mode with `ts-node-dev`.
-- `pnpm --filter backend build`: compiles backend TypeScript to `dist`.
-- `pnpm --filter backend start`: runs compiled backend from `dist/index.js`.
-- `pnpm --filter backend seed`: seeds the database with demo data.
-- `pnpm --filter backend migrate`: runs node-pg-migrate CLI.
-- `pnpm --filter backend migrate:up`: applies pending migrations.
-- `pnpm --filter backend migrate:down`: rolls back migrations.
-- `pnpm --filter backend migrate:create -- <name>`: creates a new migration file.
-- `pnpm --filter backend migrate:status`: prints migration status.
-- `pnpm --filter backend generate-keys`: generates RS256 key pair in `packages/backend/keys`.
-- `pnpm --filter backend test`: runs backend tests once (Vitest).
-- `pnpm --filter backend test:watch`: runs backend tests in watch mode.
+- `pnpm --filter backend dev` - start backend with ts-node-dev
+- `pnpm --filter backend build` - compile backend TypeScript
+- `pnpm --filter backend start` - run compiled backend
+- `pnpm --filter backend seed` - run DB seed script
+- `pnpm --filter backend migrate` - run node-pg-migrate cli
+- `pnpm --filter backend migrate:up` - apply migrations
+- `pnpm --filter backend migrate:down` - rollback migration
+- `pnpm --filter backend migrate:create -- <name>` - create migration file
+- `pnpm --filter backend migrate:status` - migration status
+- `pnpm --filter backend generate-keys` - generate JWT keypair
+- `pnpm --filter backend test` - run backend tests once
+- `pnpm --filter backend test:watch` - run backend tests in watch mode
 
 ### Frontend scripts (`packages/frontend/package.json`)
 
-- `pnpm --filter frontend dev`: runs Next.js dev server.
-- `pnpm --filter frontend build`: builds Next.js for production.
-- `pnpm --filter frontend start`: starts built Next.js app.
+- `pnpm --filter frontend dev` - start next dev server
+- `pnpm --filter frontend build` - build frontend
+- `pnpm --filter frontend start` - start built frontend
+- `pnpm --filter frontend test` - run frontend tests once
+- `pnpm --filter frontend test:watch` - run frontend tests in watch mode
 
 ### Shared types scripts (`packages/types/package.json`)
 
-- `pnpm --filter @ai-integration/types build`: compiles shared types package.
-- `pnpm --filter @ai-integration/types dev`: watches and recompiles shared types.
+- `pnpm --filter @ai-integration/types build` - compile shared types
+- `pnpm --filter @ai-integration/types dev` - watch/compile shared types
 
-## 13) Troubleshooting
+## API And User Docs
 
-### Backend exits during startup
+- Full endpoint reference: `docs/API.md`
+- End-user guide and walkthroughs: `docs/User-Guide.md`
+- Frontend deployment on Vercel: `docs/Vercel-Deployment.md`
 
-- Check `.env` values (backend validates on boot).
-- Confirm `TENANT_CONFIG_ENCRYPTION_KEY` is exactly 32 characters.
-- Confirm JWT keys exist or env keys are set.
+## Local Development Tips
 
-### Postgres auth errors (`28P01`) even though Docker DB is healthy
+- If backend cannot connect to Postgres, verify `DATABASE_URL` points to the running host/port.
+- If `pnpm dev` fails quickly, run backend/frontend separately to isolate issues:
+  - `pnpm dev:backend`
+  - `pnpm dev:frontend`
+- If auth keys are missing, regenerate:
+  - `pnpm --filter backend run generate-keys`
 
-- Confirm `DATABASE_URL` points to `localhost:5433`, not `5432`.
-- Verify docker container is up: `docker compose ps`.
+## License
 
-### Frontend cannot reach API
-
-- Confirm `NEXT_PUBLIC_API_URL=http://localhost:3001` in `packages/frontend/.env.local`.
-- Confirm backend CORS origin includes `http://localhost:3000`.
-
-### Clean reset
-
-```bash
-docker compose down -v
-docker compose up -d postgres redis
-pnpm dev
-```
-
-## 14) Docs
-
-- `docs/API.md`
-- `docs/User-Guide.md`
-- `docs/Vercel-Deployment.md`
+See `LICENSE`.

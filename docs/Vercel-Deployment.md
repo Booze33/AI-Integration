@@ -1,114 +1,97 @@
-# Vercel Deployment Guide
+# Vercel Frontend Deployment Guide
 
-This guide explains how to deploy the AI Integration Platform frontend to Vercel.
+This guide deploys the Next.js frontend (`packages/frontend`) to Vercel.
 
 ## Prerequisites
 
 - Vercel account
-- Backend API deployed and accessible
-- Environment variables configured
+- Access to this git repository
+- Backend API already deployed and reachable over HTTPS
+- Required frontend environment variables
 
-## Deployment Steps
+## 1. Import Project In Vercel
 
-### 1. Connect Repository
+1. Open Vercel dashboard and click New Project.
+2. Import this repository.
+3. Configure project:
+   - Framework preset: Next.js
+   - Root directory: `packages/frontend`
+   - Install command: `pnpm install`
+   - Build command: `pnpm build`
+   - Output directory: `.next`
 
-1. Go to [Vercel Dashboard](https://vercel.com/dashboard)
-2. Click "New Project"
-3. Import your Git repository
-4. Configure project settings:
-   - **Framework Preset**: Next.js
-   - **Root Directory**: `packages/frontend`
-   - **Build Command**: `pnpm build`
-   - **Output Directory**: `.next`
+## 2. Configure Environment Variables
 
-### 2. Environment Variables
+Set these variables in Vercel Project Settings -> Environment Variables.
 
-Set the following environment variables in Vercel:
+### Required
 
-#### Required Variables
+| Variable                        | Example                         | Purpose                                      |
+| ------------------------------- | ------------------------------- | -------------------------------------------- |
+| `NEXT_PUBLIC_API_URL`           | `https://api.example.com`       | Backend API base URL used by frontend client |
+| `NEXT_PUBLIC_DEFAULT_TENANT_ID` | `default-tenant` or tenant UUID | Default tenant identifier used by frontend   |
 
-| Variable                  | Value                                 | Description      |
-| ------------------------- | ------------------------------------- | ---------------- |
-| `NEXT_PUBLIC_BACKEND_URL` | `https://your-backend-api.vercel.app` | Backend API URL  |
-| `NODE_ENV`                | `production`                          | Environment mode |
+### Optional
 
-#### Optional Variables
+| Variable                | Example          | Purpose                                              |
+| ----------------------- | ---------------- | ---------------------------------------------------- |
+| `NEXT_PUBLIC_APP_NAME`  | `AI Integration` | Display app name                                     |
+| `NEXT_PUBLIC_MOCK_MODE` | `false`          | Enable mock mode (`true` for demo-only environments) |
 
-| Variable                       | Value   | Description                               |
-| ------------------------------ | ------- | ----------------------------------------- |
-| `NEXT_PUBLIC_MOCK_MODE`        | `false` | Enable mock data when backend unavailable |
-| `NEXT_PUBLIC_VERCEL_ANALYTICS` | `true`  | Enable Vercel Analytics                   |
-| `NEXT_PUBLIC_ERROR_REPORTING`  | `true`  | Enable error reporting                    |
+Important: this frontend expects `NEXT_PUBLIC_API_URL` (not `NEXT_PUBLIC_BACKEND_URL`).
 
-### 3. Build Settings
+## 3. Verify CORS On Backend
 
-The `vercel.json` file in `packages/frontend/` contains:
+Your backend must allow the Vercel frontend origin in `CORS_ORIGIN`.
 
-```json
-{
-  "buildCommand": "pnpm build",
-  "outputDirectory": ".next",
-  "framework": "nextjs",
-  "functions": {
-    "src/app/api/**/*.ts": {
-      "runtime": "@vercel/node"
-    }
-  },
-  "rewrites": [
-    {
-      "source": "/api/:path*",
-      "destination": "/api/:path*"
-    }
-  ],
-  "env": {
-    "NODE_ENV": "production"
-  }
-}
+Example backend value:
+
+```env
+CORS_ORIGIN=https://your-frontend.vercel.app
 ```
 
-### 4. Deploy
+If you have multiple origins, use comma-separated values.
 
-1. Click "Deploy" in Vercel
-2. Monitor the build process
-3. Once deployed, your app will be available at the generated URL
+## 4. Deploy
 
-## Mock Mode
+1. Click Deploy in Vercel.
+2. Wait for build to complete.
+3. Open generated URL and verify:
+   - login/register work
+   - dashboard loads
+   - chat calls backend
+   - upload requests reach backend
 
-If you need to deploy without a backend, enable mock mode:
+## 5. Recommended Production Settings
 
-1. Set `NEXT_PUBLIC_MOCK_MODE=true` in Vercel environment variables
-2. The app will use mock data for:
-   - User authentication
-   - AI provider configurations
-   - Provider list
+- Disable mock mode: `NEXT_PUBLIC_MOCK_MODE=false`
+- Enable Vercel protection/SSO as needed
+- Add custom domain and TLS
+- Add error monitoring if used in your stack
 
-**Note**: Mock mode is for development/testing only. Disable it for production.
+## 6. Troubleshooting
 
-## Troubleshooting
+### Build fails on Vercel
 
-### Build Fails
+- Confirm `pnpm-lock.yaml` is committed.
+- Confirm root directory is `packages/frontend`.
+- Confirm Node version supports your dependencies.
 
-- Check that `packages/frontend/.env.example` variables are set
-- Ensure backend URL is accessible
-- Verify `pnpm` is available in build environment
+### App loads but API calls fail
 
-### API Calls Fail
+- Verify `NEXT_PUBLIC_API_URL` value.
+- Confirm backend is reachable from public internet.
+- Confirm backend CORS allows your Vercel domain.
 
-- Verify `NEXT_PUBLIC_BACKEND_URL` is correct
-- Check backend CORS settings
-- Enable mock mode temporarily for testing
+### Login loop / unauthorized requests
 
-### Environment Variables Not Working
+- Check backend token cookie settings and HTTPS behavior.
+- Ensure backend and frontend are using correct environment URLs.
 
-- Environment variables must be set in Vercel dashboard
-- Use `NEXT_PUBLIC_` prefix for client-side variables
-- Redeploy after changing environment variables
+## 7. Redeploy Process
 
-## Production Checklist
+When changing frontend env variables:
 
-- [ ] Backend API deployed and accessible
-- [ ] `NEXT_PUBLIC_BACKEND_URL` set correctly
-- [ ] `NEXT_PUBLIC_MOCK_MODE` set to `false`
-- [ ] Domain configured (optional)
-- [ ] SSL certificate enabled
-- [ ] Analytics configured (optional)
+1. Update variable in Vercel settings.
+2. Trigger a redeploy.
+3. Hard refresh browser after deployment.

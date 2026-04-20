@@ -1,431 +1,186 @@
-# AI Integration Platform API Documentation
+# API Reference
 
-## Overview
+Base URL (local): `http://localhost:3001`
 
-The AI Integration Platform provides a comprehensive API for managing AI provider configurations, authentication, chat functionality, and file processing in a multi-tenant environment.
+Auth methods:
 
-## Authentication
+- Bearer token in `Authorization: Bearer <accessToken>`
+- HttpOnly cookies (`accessToken`, `refreshToken`) set by auth endpoints
 
-All API endpoints require authentication using JWT tokens. The platform uses RS256 asymmetric keys for token signing.
+Auth levels used below:
 
-### Login
+- `Public`: no auth required
+- `Authenticated`: valid logged-in user
+- `Viewer+`: authenticated with viewer/member/admin
+- `Admin/Owner`: authenticated with role `admin` or `owner`
 
-```http
-POST /auth/login
-Content-Type: application/json
+## Health Endpoints
 
-{
-  "email": "user@example.com",
-  "password": "password"
-}
-```
+| Method | Path               | Auth   | Request Body | Response Shape                                                                                                                                      |
+| ------ | ------------------ | ------ | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/health`          | Public | none         | `{ status: "ok" }`                                                                                                                                  |
+| GET    | `/health/redis`    | Public | none         | success: `{ status: "ok", redis: { ready, singleton, queue } }`; failure: `{ status: "error", redis: ... }`                                         |
+| GET    | `/health/db`       | Public | none         | success: `{ status: "ok", database: { connected, name, latency, timestamp } }`; failure: `{ status: "error", database: { connected: false, ... } }` |
+| GET    | `/health/detailed` | Public | none         | `{ status, database, pool, server, redis }`                                                                                                         |
 
-**Response (200):**
+## Auth Endpoints (`/auth`)
 
-```json
-{
-  "message": "Login successful",
-  "user": {
-    "id": "user-uuid",
-    "email": "user@example.com",
-    "role": "admin"
-  },
-  "accessToken": "eyJhbGciOiJSUzI1NiIs...",
-  "refreshToken": "eyJhbGciOiJSUzI1NiIs..."
-}
-```
+| Method | Path                    | Auth          | Request Body                                                                                | Response Shape                                                                |
+| ------ | ----------------------- | ------------- | ------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| POST   | `/auth/register`        | Public        | `{ email: string, password: string, role?: string, tenantId?: string, tenant_id?: string }` | `{ message, user: { id, email, role, tenantId }, accessToken, refreshToken }` |
+| POST   | `/auth/login`           | Public        | `{ email: string, password: string, tenantId?: string, tenant_id?: string }`                | `{ message, user: { id, email, role, tenantId }, accessToken, refreshToken }` |
+| POST   | `/auth/refresh`         | Public        | `{ refreshToken?: string }` (or refresh cookie)                                             | `{ message, user: { id, email, role, tenantId }, accessToken, refreshToken }` |
+| GET    | `/auth/me`              | Authenticated | none                                                                                        | `{ user: { id, email, role, tenantId, createdAt } }`                          |
+| POST   | `/auth/logout`          | Public        | `{ refreshToken?: string }` (optional)                                                      | `{ message: "Logged out successfully" }`                                      |
+| POST   | `/auth/logout-all`      | Authenticated | none                                                                                        | `{ message }`                                                                 |
+| GET    | `/auth/tokens`          | Authenticated | none                                                                                        | `{ activeTokenCount: number, tokens: string[] }`                              |
+| DELETE | `/auth/tokens/:tokenId` | Authenticated | none                                                                                        | `{ message }`                                                                 |
 
-The response also sets `accessToken` and `refreshToken` as HttpOnly cookies with `SameSite=Lax`.
+Common auth errors:
 
-### Register
+- `400` invalid request fields
+- `401` invalid/missing credentials
+- `403` role or ownership restriction
+- `404` user/token not found
+- `409` duplicate user (register)
 
-```http
-POST /auth/register
-Content-Type: application/json
+## Chat Endpoints (`/api/chat`)
 
-{
-  "email": "user@example.com",
-  "password": "securepassword",
-  "role": "member"
-}
-```
+### HTTP routes
 
-**Response (201):**
+| Method | Path                              | Auth    | Request Body                                                                                                                              | Response Shape                                                                                      |
+| ------ | --------------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| POST   | `/api/chat`                       | Viewer+ | `{ messages: ChatMessage[], model?, temperature?, maxTokens?, topP?, frequencyPenalty?, presencePenalty?, stop?, streamId?, sessionId? }` | `text/event-stream` SSE events: `start`, `chunk`, `done`, `error`                                   |
+| POST   | `/api/chat/transcribe/session`    | Viewer+ | none                                                                                                                                      | `{ sessionId: string }`                                                                             |
+| GET    | `/api/chat/transcribe/:sessionId` | Viewer+ | none                                                                                                                                      | `text/event-stream` transcription events (`ready`, `transcription`, `transcription-error`, `close`) |
+| POST   | `/api/chat/transcribe/:sessionId` | Viewer+ | raw binary audio bytes                                                                                                                    | `{ success: true }`                                                                                 |
+| DELETE | `/api/chat/transcribe/:sessionId` | Viewer+ | none                                                                                                                                      | `{ success: true }`                                                                                 |
+| GET    | `/api/chat/history`               | Viewer+ | none                                                                                                                                      | `{ sessions: ChatHistorySession[] }`                                                                |
+| POST   | `/api/chat/history`               | Viewer+ | `{ messages: ChatMessage[], streamId?: string }`                                                                                          | `{ success: true }`                                                                                 |
 
-```json
-{
-  "message": "User registered successfully",
-  "user": {
-    "id": "user-uuid",
-    "email": "user@example.com",
-    "role": "member",
-    "tenantId": "tenant-uuid"
-  },
-  "accessToken": "eyJhbGciOiJSUzI1NiIs...",
-  "refreshToken": "eyJhbGciOiJSUzI1NiIs..."
-}
-```
+`ChatMessage` accepted roles: `system`, `user`, `assistant`, `function`.
 
-The response also sets `accessToken` and `refreshToken` as HttpOnly cookies with `SameSite=Lax`.
+### WebSocket route
 
-### Refresh Token
+| Protocol | Path       | Auth                                  | Message Payload                                                                                                    | Response                                               |
+| -------- | ---------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------ |
+| WS       | `/ws/chat` | Bearer token or cookie token required | `{"type":"start","messages": [...],"options"?: {...},"sessionId"?: string}`; `{"type":"abort"}`; `{"type":"ping"}` | JSON events: `start`, `chunk`, `done`, `pong`, `error` |
 
-```http
-POST /auth/refresh
-Content-Type: application/json
+## Tenant Provider Config Endpoints (`/api/tenant`)
 
-{
-  "refreshToken": "eyJhbGciOiJSUzI1NiIs..."
-}
-```
+| Method | Path                     | Auth          | Request Body                                                                                                    | Response Shape                                                     |
+| ------ | ------------------------ | ------------- | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| GET    | `/api/tenant/config`     | Admin/Owner   | none                                                                                                            | `{ success: true, data: TenantConfigMasked[] }`                    |
+| GET    | `/api/tenant/config/:id` | Admin/Owner   | none                                                                                                            | `{ success: true, data: TenantConfigMasked }`                      |
+| POST   | `/api/tenant/config`     | Admin/Owner   | `{ provider, api_key, base_url?, organization?, default_model?, default_voice_id?, timeout_ms?, max_retries? }` | `{ success: true, data: TenantConfigMasked }`                      |
+| PUT    | `/api/tenant/config/:id` | Admin/Owner   | same fields as create, all optional                                                                             | `{ success: true, data: TenantConfigMasked }`                      |
+| DELETE | `/api/tenant/config/:id` | Admin/Owner   | none                                                                                                            | `{ success: true, message }`                                       |
+| GET    | `/api/tenant/providers`  | Authenticated | none                                                                                                            | `{ success: true, data: [{ name, displayName, requiresApiKey }] }` |
 
-**Response (200):**
+`TenantConfigMasked` returns the encrypted key field masked as `api_key_encrypted: "********"`.
 
-```json
-{
-  "message": "Tokens refreshed successfully",
-  "user": {
-    "id": "user-uuid",
-    "email": "user@example.com",
-    "role": "admin"
-  },
-  "accessToken": "eyJhbGciOiJSUzI1NiIs...",
-  "refreshToken": "eyJhbGciOiJSUzI1NiIs..."
-}
-```
+## Pipeline Endpoints (`/api/pipeline`)
 
-The response also sets new `accessToken` and `refreshToken` as HttpOnly cookies with `SameSite=Lax`.
+| Method | Path                         | Auth    | Request Body                                                                          | Response Shape                                                                                                                                   |
+| ------ | ---------------------------- | ------- | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| POST   | `/api/pipeline/upload`       | Viewer+ | multipart form with `file`; query: `chunkSize?`, `chunkOverlap?`, `sentenceBoundary?` | `{ success, file, extraction, chunks, chunkPreviews, chunkTexts }`                                                                               |
+| POST   | `/api/pipeline/upload/async` | Viewer+ | multipart form with `file`; query: `chunkSize?`, `chunkOverlap?`                      | `{ success, jobId, status, message }`                                                                                                            |
+| GET    | `/api/pipeline/jobs/:jobId`  | Viewer+ | none                                                                                  | `{ success, job: { id, fileId, originalName, status, progress, chunks?, chunkPreviews, chunkTexts, error, createdAt, updatedAt, completedAt } }` |
+| GET    | `/api/pipeline/jobs`         | Viewer+ | none (optional query `status`)                                                        | `{ success, jobs: JobSummary[], total }`                                                                                                         |
+| GET    | `/api/pipeline/stats`        | Public  | none                                                                                  | `{ success, stats: { waiting, active, completed, failed, delayed } }`                                                                            |
+| DELETE | `/api/pipeline/jobs/:jobId`  | Viewer+ | none                                                                                  | `{ success: true, message }`                                                                                                                     |
 
-Can also accept the refresh token from cookies if present. Returns 401 if the refresh token is invalid or revoked.
+## Webhook Endpoints (`/api/webhooks`)
 
-### Logout
+| Method | Path                      | Auth                                               | Request Body                                                  | Response Shape                                                   |
+| ------ | ------------------------- | -------------------------------------------------- | ------------------------------------------------------------- | ---------------------------------------------------------------- |
+| POST   | `/api/webhooks/:provider` | Public (signature-verified when secret configured) | raw payload (`application/json` or provider-specific payload) | `{ received: true, jobId, provider, event }`                     |
+| GET    | `/api/webhooks/health`    | Public                                             | none                                                          | `{ status, service: "webhook", providers: string[], timestamp }` |
 
-```http
-POST /auth/logout
-Content-Type: application/json
+Supported webhook providers in current implementation:
 
-{
-  "refreshToken": "eyJhbGciOiJSUzI1NiIs..."
-}
-```
+- `github`
+- `stripe`
+- `gitlab`
+- `generic`
 
-**Response (200):**
+Signature headers:
 
-```json
-{
-  "message": "Logged out successfully"
-}
-```
+- GitHub: `x-hub-signature-256`
+- Stripe: `stripe-signature`
+- GitLab: `x-gitlab-token`
+- Generic: `x-webhook-signature`
 
-Clears `accessToken` and `refreshToken` cookies. Can accept refresh token from body or cookies. Returns 200 regardless of whether a refresh token was provided.
+## Dashboard Endpoints (`/api/dashboard`)
 
-### Get Current User
+| Method | Path                   | Auth    | Request Body | Response Shape                                                                              |
+| ------ | ---------------------- | ------- | ------------ | ------------------------------------------------------------------------------------------- |
+| GET    | `/api/dashboard/stats` | Viewer+ | none         | `{ success: true, stats: { totalChats, filesUploaded, tokensUsed, apiCalls, queueStats } }` |
 
-```http
-GET /auth/me
-Authorization: Bearer <access_token>
-```
+## Diagnostics Endpoints (`/api/diagnostics`)
 
-## Tenant AI Configuration
+| Method | Path                                             | Auth   | Request Body         | Response Shape                                            |
+| ------ | ------------------------------------------------ | ------ | -------------------- | --------------------------------------------------------- |
+| GET    | `/api/diagnostics/health`                        | Public | none                 | `{ status, timestamp, checks: { pool, cache, details } }` |
+| GET    | `/api/diagnostics/ready`                         | Public | none                 | `{ ready: boolean, status }`                              |
+| GET    | `/api/diagnostics/live`                          | Public | none                 | `{ alive: true, timestamp }`                              |
+| GET    | `/api/diagnostics/metrics`                       | Public | none                 | metrics snapshot object                                   |
+| GET    | `/api/diagnostics/metrics/prometheus`            | Public | none                 | plain text prometheus output                              |
+| GET    | `/api/diagnostics/metrics/window?duration=60000` | Public | none                 | `{ window: { durationMs }, metrics }`                     |
+| GET    | `/api/diagnostics/metrics/slow-queries?limit=10` | Public | none                 | `{ limit, count, queries }`                               |
+| GET    | `/api/diagnostics/pool`                          | Public | none                 | `{ stats, utilization, health }`                          |
+| GET    | `/api/diagnostics/cache`                         | Public | none                 | `{ l1, l2Connected, recommendations }`                    |
+| POST   | `/api/diagnostics/cache/clear`                   | Public | none                 | `{ message }`                                             |
+| POST   | `/api/diagnostics/cache/invalidate-tag`          | Public | `{ tag: string }`    | `{ message, count }`                                      |
+| POST   | `/api/diagnostics/cache/invalidate-prefix`       | Public | `{ prefix: string }` | `{ message, count }`                                      |
+| GET    | `/api/diagnostics/query-stats`                   | Public | none                 | query optimizer stats object                              |
+| GET    | `/api/diagnostics/info`                          | Public | none                 | `{ version, nodeVersion, uptime, memory, environment }`   |
+| GET    | `/api/diagnostics/report`                        | Public | none                 | combined diagnostic report object                         |
 
-Manage AI provider configurations per tenant with encrypted API keys.
+## Error Response Pattern
 
-### List Configurations
-
-```http
-GET /api/tenant/config
-Authorization: Bearer <access_token>
-```
-
-**Response:**
-
-```json
-{
-  "success": true,
-  "data": [
-    {
-      "id": "config-uuid",
-      "tenant_id": "tenant-uuid",
-      "provider": "openai",
-      "api_key_encrypted": "••••••••••••••••",
-      "base_url": "https://api.openai.com",
-      "organization": null,
-      "default_model": "gpt-4",
-      "timeout_ms": 30000,
-      "max_retries": 3,
-      "is_active": true,
-      "metadata": {},
-      "created_at": "2024-01-01T00:00:00.000Z",
-      "updated_at": "2024-01-01T00:00:00.000Z"
-    }
-  ]
-}
-```
-
-### Create Configuration
-
-```http
-POST /api/tenant/config
-Authorization: Bearer <access_token>
-Content-Type: application/json
-
-{
-  "provider": "openai",
-  "api_key": "sk-...",
-  "base_url": "https://api.openai.com",
-  "default_model": "gpt-4",
-  "timeout_ms": 30000,
-  "max_retries": 3
-}
-```
-
-**Supported Providers:**
-
-- `openai` - OpenAI API
-- `anthropic` - Anthropic Claude
-- `deepgram` - Deepgram Speech-to-Text
-- `elevenlabs` - ElevenLabs Text-to-Speech
-- `azure-openai` - Azure OpenAI
-- `google` - Google AI
-- `mistral` - Mistral AI
-- `groq` - Groq
-- `ollama` - Ollama (local)
-- `custom` - Custom provider
-
-### Get Configuration
-
-```http
-GET /api/tenant/config/{id}
-Authorization: Bearer <access_token>
-```
-
-### Update Configuration
-
-```http
-PUT /api/tenant/config/{id}
-Authorization: Bearer <access_token>
-Content-Type: application/json
-
-{
-  "base_url": "https://custom-api.example.com",
-  "timeout_ms": 60000
-}
-```
-
-### Delete Configuration
-
-```http
-DELETE /api/tenant/config/{id}
-Authorization: Bearer <access_token>
-```
-
-### List Providers
-
-```http
-GET /api/tenant/providers
-```
-
-**Response:**
+Many endpoints return this shape on errors:
 
 ```json
 {
-  "success": true,
-  "data": [
-    {
-      "name": "openai",
-      "displayName": "OpenAI",
-      "requiresApiKey": true
-    }
-  ]
+  "error": "Bad Request | Unauthorized | Forbidden | Not Found | Conflict",
+  "message": "Human readable error"
 }
 ```
 
-## Chat API
-
-Real-time chat with streaming responses and voice transcription.
-
-### Get Chat History
-
-```http
-GET /api/chat/history
-Authorization: Bearer <access_token>
-```
-
-### Transcribe Audio
-
-```http
-POST /api/chat/transcribe
-Authorization: Bearer <access_token>
-Content-Type: multipart/form-data
-
-# Form data with 'audio' file
-```
-
-**Response:**
-
-```json
-{
-  "text": "Hello, how can I help you?",
-  "confidence": 0.95
-}
-```
-
-## Pipeline API
-
-File upload and processing with job tracking.
-
-### Upload File
-
-```http
-POST /api/pipeline/upload
-Authorization: Bearer <access_token>
-Content-Type: multipart/form-data
-
-# Form data with 'file' upload
-```
-
-**Response:**
-
-```json
-{
-  "jobId": "job-uuid",
-  "status": "queued",
-  "message": "File uploaded successfully"
-}
-```
-
-### Get Job Status
-
-```http
-GET /api/pipeline/jobs/{jobId}
-Authorization: Bearer <access_token>
-```
-
-**Response:**
-
-```json
-{
-  "jobId": "job-uuid",
-  "status": "completed",
-  "progress": 100,
-  "result": {
-    "text": "Extracted text content...",
-    "metadata": {}
-  },
-  "createdAt": "2024-01-01T00:00:00.000Z",
-  "updatedAt": "2024-01-01T00:00:00.000Z"
-}
-```
-
-## Error Responses
-
-All endpoints return errors in a consistent format:
+Validation-heavy endpoints may instead return:
 
 ```json
 {
   "success": false,
-  "error": "Error message",
-  "statusCode": 400
+  "errors": [{ "msg": "...", "path": "...", "location": "body" }]
 }
 ```
 
-### Common HTTP Status Codes
+## cURL Examples
 
-- `200` - Success
-- `201` - Created
-- `400` - Bad Request (validation errors)
-- `401` - Unauthorized
-- `403` - Forbidden (insufficient permissions)
-- `404` - Not Found
-- `409` - Conflict (duplicate resource)
-- `500` - Internal Server Error
-
-## Rate Limiting
-
-The API implements multi-scope rate limiting:
-
-- **User Limit**: Per authenticated user
-- **Tenant Limit**: Per tenant
-- **IP Limit**: Per IP address
-
-Rate limits are configurable via environment variables:
-
-- `RATE_LIMIT_USER_MAX=100` - Requests per window per user
-- `RATE_LIMIT_TENANT_MAX=1000` - Requests per window per tenant
-- `RATE_LIMIT_IP_MAX=50` - Requests per window per IP
-- `RATE_LIMIT_WINDOW_MS=900000` - Window duration (15 minutes)
-
-## Security Features
-
-### API Key Encryption
-
-- All API keys are encrypted using AES-256-CBC
-- Unique initialization vectors (IV) per key
-- Encryption keys configured via environment variables
-
-### Multi-Tenant Isolation
-
-- Row Level Security (RLS) in PostgreSQL
-- Tenant context automatically applied to all queries
-- Users can only access resources in their tenant
-
-### Authentication & Authorization
-
-- JWT tokens with RS256 signing
-- Refresh token rotation
-- Role-based access control (admin, owner, member, viewer)
-- Automatic token refresh on expiry
-
-## Environment Variables
-
-### Required
-
-- `DATABASE_URL` - PostgreSQL connection string
-- `REDIS_URL` - Redis connection string
-- `JWT_PRIVATE_KEY` - RSA private key for JWT signing
-- `JWT_PUBLIC_KEY` - RSA public key for JWT verification
-- `TENANT_CONFIG_ENCRYPTION_KEY` - AES encryption key for API keys
-
-### Optional
-
-- `PORT=3001` - Server port
-- `NODE_ENV=development` - Environment
-- `RATE_LIMIT_*` - Rate limiting configuration
-- `BACKEND_URL` - Frontend API proxy URL
-
-## Development
-
-### Running Tests
+Register:
 
 ```bash
-# Backend tests
-cd packages/backend
-pnpm test
-
-# Frontend tests
-cd packages/frontend
-pnpm test
+curl -X POST http://localhost:3001/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"email":"dev@example.com","password":"StrongPass123!","role":"owner"}'
 ```
 
-### API Client
+Create tenant provider config:
 
-The frontend includes a typed API client with automatic authentication:
+```bash
+curl -X POST http://localhost:3001/api/tenant/config \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"provider":"openai","api_key":"sk-...","default_model":"gpt-4o-mini"}'
+```
 
-```typescript
-import { apiClient } from '@/lib/api-client';
+Webhook test:
 
-// Login
-const response = await apiClient.login({
-  email: 'user@example.com',
-  password: 'password',
-});
-
-// Get tenant configs
-const configs = await apiClient.getTenantConfigs();
-
-// Create new config
-const newConfig = await apiClient.createTenantConfig({
-  provider: 'openai',
-  api_key: 'sk-...',
-});
+```bash
+curl -X POST http://localhost:3001/api/webhooks/generic \
+  -H "Content-Type: application/json" \
+  -H "x-webhook-signature: <signature>" \
+  -d '{"event":"demo"}'
 ```

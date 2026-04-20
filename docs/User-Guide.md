@@ -1,192 +1,158 @@
-# AI Integration Platform User Guide
+# User Guide
 
-## Getting Started
+This guide is for product users and admins using the web app.
 
-The AI Integration Platform allows you to configure and manage multiple AI providers in a secure, multi-tenant environment.
+App URL in local development: `http://localhost:3000`
 
-## Dashboard
+## 1. Sign Up And Sign In
 
-After logging in, you'll see the main dashboard with navigation to different sections:
+### Create an account
 
-- **Chat** - Interactive AI chat with voice input
-- **Upload** - File processing and analysis
-- **Settings** - AI provider configuration
+1. Open `/register`.
+2. Enter email, password, and confirm password.
+3. Submit the form.
+4. You are redirected to `/dashboard` on success.
 
-## Configuring AI Providers
+### Sign in
 
-### Accessing Settings
+1. Open `/login`.
+2. Enter email and password.
+3. Select Sign In.
+4. You are redirected to your post-login page (usually `/dashboard`).
 
-1. Click "Settings" in the navigation
-2. You'll see a list of your current AI provider configurations
+## 2. Dashboard Walkthrough (`/dashboard`)
 
-### Adding a New Provider
+The dashboard shows:
 
-1. Click "Add Configuration"
-2. Select a provider from the dropdown (OpenAI, Anthropic, etc.)
-3. Enter your API key
-4. Configure optional settings:
-   - Base URL (for custom endpoints)
-   - Default model
-   - Timeout settings
-   - Retry settings
+- Current account identity (email, role, user id)
+- Summary statistics:
+  - total chats
+  - files uploaded
+  - token estimate
+  - api calls
+- Quick actions:
+  - Start Chat
+  - Upload File
+  - Settings
 
-### Provider-Specific Setup
+If stats fail to load, use the Retry button shown in the dashboard alert.
 
-#### OpenAI
+## 3. Chat Flow (`/chat`)
 
-- Get your API key from [OpenAI Platform](https://platform.openai.com/api-keys)
-- Default models: gpt-4, gpt-3.5-turbo
+### Start a text chat
 
-#### Anthropic
+1. Open `/chat`.
+2. Type your prompt in the composer.
+3. Submit to start streaming response.
+4. The assistant response streams token-by-token in the UI.
 
-- Get your API key from [Anthropic Console](https://console.anthropic.com/)
-- Default models: claude-3-opus, claude-3-sonnet
+### Resume/inspect history
 
-#### Deepgram
+1. In chat page, open history panel.
+2. Choose an earlier session.
+3. Session messages are loaded in read-only history view.
 
-- Get your API key from [Deepgram Console](https://console.deepgram.com/)
-- Used for speech-to-text transcription
+### Voice transcription flow
 
-#### ElevenLabs
+1. Start a transcription session from chat voice controls.
+2. Allow microphone permission.
+3. Speak while audio is posted to active transcription session.
+4. Transcribed text events appear in real time.
+5. Stop/close session when done.
 
-- Get your API key from [ElevenLabs](https://elevenlabs.io/app/profile)
-- Used for text-to-speech generation
+## 4. Upload And Processing Flow (`/upload`)
 
-### Managing Configurations
+### Upload and process a file
 
-- **Edit**: Click the edit button to modify settings
-- **Delete**: Click delete to remove a configuration
-- **Active/Inactive**: Toggle configurations on/off
+1. Open `/upload`.
+2. Drag and drop a file (or choose from file picker).
+3. Select mode:
+   - sync: immediate extraction/chunk result
+   - background: queued async processing
+4. Monitor status and progress in jobs list.
 
-## Using the Chat Interface
+### Use processed output
 
-### Text Chat
+For completed jobs, you can inspect:
 
-1. Type your message in the input field
-2. Press Enter or click Send
-3. The AI will respond with streaming text
+- chunk counts and token counts
+- preview snippets (`chunkPreviews`)
+- full chunk text payload (`chunkTexts`)
 
-### Voice Input
+## 5. AI Provider Settings (`/settings/ai-providers`)
 
-1. Click the microphone button
-2. Grant microphone permissions if prompted
-3. Speak your message
-4. The speech will be transcribed and sent as text
+Admin/owner users can:
 
-### Chat History
+1. Open AI Providers page.
+2. Add provider config with API key and optional tuning values.
+3. Edit existing provider configs.
+4. Deactivate provider configs.
 
-- Previous conversations are saved automatically
-- Click "Resume stream" to continue interrupted conversations
-- History persists across sessions
+Supported providers are fetched from backend (`/api/tenant/providers`).
 
-## File Upload and Processing
+## 6. Active Sessions (`/settings/active-sessions`)
 
-### Supported Formats
+Use this page to manage refresh-token sessions.
 
-- **Documents**: PDF, DOCX, TXT
-- **Images**: JPG, PNG, GIF
-- **Audio**: MP3, WAV, M4A
+1. View active token ids.
+2. Copy token id when troubleshooting.
+3. Revoke an individual token/session.
 
-### Uploading Files
+Warning shown in UI: revoking your current active session will log you out on next API request.
 
-1. Click "Upload" in the navigation
-2. Drag and drop files or click to browse
-3. Monitor upload progress
-4. View processing results
+## 7. Typical End-User Journeys
 
-### Processing Features
+### Journey A: New user to first chat
 
-- **Text Extraction**: Extract text from documents
-- **Image Analysis**: Analyze images with AI
-- **Audio Transcription**: Transcribe audio files
+1. Register at `/register`.
+2. Land on `/dashboard`.
+3. Go to `/chat`.
+4. Send first message.
 
-## Security Best Practices
+### Journey B: Admin setup to usable AI
 
-### API Keys
+1. Sign in as admin/owner.
+2. Open `/settings/ai-providers`.
+3. Add provider credentials.
+4. Open `/chat` and verify responses.
 
-- Never share your API keys
-- Rotate keys regularly
-- Use separate keys for different environments
-- Monitor usage in your provider dashboards
+### Journey C: Document-assisted workflow
 
-### Account Security
+1. Open `/upload` and process document.
+2. Review extracted chunks.
+3. Open `/chat` and use chunk context in prompts.
 
-- Use strong, unique passwords
-- Enable two-factor authentication when available
-- Log out when using shared computers
-- Report suspicious activity
+## 8. Troubleshooting
 
-## Troubleshooting
+### Cannot sign in
 
-### Common Issues
+- Verify credentials.
+- Confirm backend is running.
+- If recently revoked sessions, sign in again.
 
-#### Login Problems
+### Provider settings page fails
 
-- Check email and password
-- Clear browser cache
-- Try a different browser
+- Ensure account role is `admin` or `owner`.
+- Verify backend `/api/tenant/providers` and `/api/tenant/config` are healthy.
 
-#### API Configuration
+### Upload fails
 
-- Verify API keys are correct
-- Check provider account limits
-- Ensure correct base URLs
+- Check file type/size limits.
+- Confirm backend and Redis are running.
 
-#### Voice Input
+### Chat streaming stops
 
-- Grant microphone permissions
-- Check browser compatibility
-- Try refreshing the page
+- Verify backend health and provider config.
+- Retry message; for persistent issues, re-login and retry.
 
-#### File Upload
+## 9. Screenshot Notes
 
-- Check file size limits
-- Verify supported formats
-- Ensure stable internet connection
+This version documents all user flows with step-by-step instructions.
+If you are preparing a marketplace listing, add UI screenshots for these pages:
 
-### Getting Help
-
-- Check the API documentation
-- Review browser console for errors
-- Contact your administrator
-
-## Advanced Features
-
-### Rate Limiting
-
-The platform includes intelligent rate limiting:
-
-- Per-user limits prevent abuse
-- Tenant-wide limits ensure fair usage
-- Automatic retry with backoff
-
-### Multi-Tenant Architecture
-
-- Complete isolation between tenants
-- Secure API key storage
-- Role-based access control
-
-### Real-time Features
-
-- Streaming chat responses
-- Live voice transcription
-- Real-time file processing updates
-
-## API Access
-
-For developers, the platform provides a comprehensive REST API:
-
-```bash
-# Get configurations
-curl -H "Authorization: Bearer <token>" \
-     http://localhost:3001/api/tenant/config
-
-# Create configuration
-curl -X POST \
-     -H "Authorization: Bearer <token>" \
-     -H "Content-Type: application/json" \
-     -d '{"provider":"openai","api_key":"sk-..."}' \
-     http://localhost:3001/api/tenant/config
-```
-
-See the [API Documentation](./API.md) for complete reference.
+- login/register
+- dashboard
+- chat with streamed response
+- upload jobs list and details
+- ai provider settings
+- active sessions
