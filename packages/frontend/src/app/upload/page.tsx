@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import { Upload, CheckCircle, XCircle, Clock, AlertCircle } from 'lucide-react';
 import { apiClient } from '../../lib/api-client';
 import { getLoginRedirectPathForCurrentLocation } from '../../lib/auth-redirect';
+import { useFocusTrap } from '../../lib/useFocusTrap';
+import { usePageTitle } from '../../lib/usePageTitle';
 
 interface UserInfo {
   id: string;
@@ -75,6 +77,7 @@ function formatDateTime(value?: string) {
 }
 
 export default function UploadPage() {
+  usePageTitle('Upload | AI Integration Platform');
   const router = useRouter();
   const [user, setUser] = useState<UserInfo | null>(null);
   const [loading, setLoading] = useState(true);
@@ -98,6 +101,7 @@ export default function UploadPage() {
   const isQueueRunningRef = useRef(false);
   const zoneErrorTimeoutRef = useRef<number | null>(null);
   const pollingTimersRef = useRef<Record<string, number>>({});
+  const detailDrawerRef = useRef<HTMLDivElement | null>(null);
 
   const visibleJobs = useMemo(() => {
     if (jobFilter === 'failed') {
@@ -105,6 +109,7 @@ export default function UploadPage() {
     }
     return jobs;
   }, [jobFilter, jobs]);
+  useFocusTrap(isDetailDrawerOpen, detailDrawerRef, () => setIsDetailDrawerOpen(false));
 
   const stopPollingJob = useCallback((jobId: string) => {
     const existing = pollingTimersRef.current[jobId];
@@ -302,21 +307,6 @@ export default function UploadPage() {
       }
     });
   }, [jobs, startPollingJob, stopPollingJob]);
-
-  useEffect(() => {
-    if (!isDetailDrawerOpen) return;
-
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setIsDetailDrawerOpen(false);
-      }
-    };
-
-    window.addEventListener('keydown', handleEscape);
-    return () => {
-      window.removeEventListener('keydown', handleEscape);
-    };
-  }, [isDetailDrawerOpen]);
 
   const showZoneError = useCallback((message: string) => {
     setZoneError(message);
@@ -779,7 +769,11 @@ export default function UploadPage() {
             >
               Browse files
             </button>
+            <label htmlFor="upload-file-input" className="sr-only">
+              Choose files to upload
+            </label>
             <input
+              id="upload-file-input"
               ref={fileInputRef}
               type="file"
               multiple
@@ -804,10 +798,18 @@ export default function UploadPage() {
                 {visibleJobs.map((job) => (
                   <div
                     key={job.id}
+                    role="button"
+                    tabIndex={0}
                     className={`border rounded-lg p-4 bg-gray-50 ${
                       job.status === 'completed' ? 'cursor-pointer hover:border-indigo-300' : ''
                     }`}
                     onClick={() => openJobDetails(job)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        openJobDetails(job);
+                      }
+                    }}
                   >
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center space-x-3">
@@ -881,22 +883,37 @@ export default function UploadPage() {
           )}
 
           {visibleJobs.length === 0 && jobs.length > 0 && jobFilter === 'failed' && (
-            <div className="mt-8 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
-              No failed jobs match the current filter.
+            <div className="mt-8 rounded-lg border border-slate-200 bg-slate-50 p-6 text-center">
+              <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-slate-200 text-slate-700">
+                🔎
+              </div>
+              <p className="text-base font-semibold text-slate-900">No failed jobs right now.</p>
+              <p className="mt-1 text-sm text-slate-600">
+                All recent uploads are healthy, or your current filter has no matches.
+              </p>
             </div>
           )}
         </div>
       </div>
 
       {isDetailDrawerOpen && selectedJob && (
-        <div className="fixed inset-0 z-40 flex justify-end bg-slate-900/30">
-          <div className="h-full w-full max-w-lg border-l border-slate-200 bg-white p-4 shadow-2xl overflow-y-auto">
+        <div className="fixed inset-0 z-40 flex items-end bg-slate-900/30 md:items-stretch md:justify-end">
+          <div
+            ref={detailDrawerRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="upload-job-details-title"
+            tabIndex={-1}
+            className="max-h-[82vh] w-full overflow-y-auto rounded-t-2xl border border-slate-200 bg-white p-4 shadow-2xl md:h-full md:max-h-none md:max-w-lg md:rounded-none md:border-l md:border-t-0"
+          >
             <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-slate-900">Job Details</h2>
+              <h2 id="upload-job-details-title" className="text-lg font-semibold text-slate-900">
+                Job Details
+              </h2>
               <button
                 type="button"
                 onClick={() => setIsDetailDrawerOpen(false)}
-                className="rounded-md px-2 py-1 text-sm text-slate-600 hover:bg-slate-100"
+                className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md px-3 py-2 text-sm text-slate-600 hover:bg-slate-100"
               >
                 Close
               </button>
@@ -933,7 +950,18 @@ export default function UploadPage() {
               <h3 className="text-sm font-semibold text-slate-900 mb-2">Chunk preview (first 3)</h3>
               <div className="space-y-2">
                 {(selectedJob.chunkPreviews || []).length === 0 ? (
-                  <p className="text-sm text-slate-500">No chunk preview available.</p>
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-center">
+                    <div className="mx-auto mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-slate-200 text-slate-700">
+                      📦
+                    </div>
+                    <p className="text-sm font-semibold text-slate-900">
+                      No chunk preview available.
+                    </p>
+                    <p className="mt-1 text-xs text-slate-600">
+                      Chunk details will appear here once extraction and preview generation
+                      complete.
+                    </p>
+                  </div>
                 ) : (
                   (selectedJob.chunkPreviews || []).slice(0, 3).map((chunk) => {
                     const isExpanded = Boolean(expandedChunkIds[chunk.id]);
@@ -956,7 +984,7 @@ export default function UploadPage() {
                               event.stopPropagation();
                               toggleChunkExpansion(chunk.id);
                             }}
-                            className="text-xs text-indigo-600 underline"
+                            className="inline-flex min-h-11 items-center rounded-md px-3 py-2 text-sm font-medium text-indigo-600 hover:bg-indigo-50"
                           >
                             {isExpanded ? 'Collapse' : 'Expand'}
                           </button>
@@ -973,7 +1001,7 @@ export default function UploadPage() {
               <button
                 type="button"
                 onClick={useJobInChat}
-                className="w-full rounded-lg bg-indigo-600 px-4 py-2 text-white font-medium hover:bg-indigo-700"
+                className="min-h-11 w-full rounded-lg bg-indigo-600 px-4 py-2 text-white font-medium hover:bg-indigo-700"
               >
                 Use in Chat
               </button>

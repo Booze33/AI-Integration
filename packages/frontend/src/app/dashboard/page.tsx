@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { apiClient, DashboardStats } from '../../lib/api-client';
 import { getLoginRedirectPathForCurrentLocation } from '../../lib/auth-redirect';
 import { getCachedDashboardStats, setCachedDashboardStats } from '../../lib/dashboard-store';
+import { usePageTitle } from '../../lib/usePageTitle';
 
 interface User {
   id: string;
@@ -13,6 +14,7 @@ interface User {
 }
 
 export default function DashboardPage() {
+  usePageTitle('Dashboard | AI Integration Platform');
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
   const [stats, setStats] = useState<DashboardStats | null>(null);

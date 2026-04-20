@@ -29,7 +29,7 @@ export function MobileBottomNav() {
             <li key={item.href}>
               <Link
                 href={item.href}
-                className={`flex flex-col items-center justify-center gap-1 px-2 py-2 text-xs font-medium ${
+                className={`flex min-h-11 flex-col items-center justify-center gap-1 px-2 py-2 text-xs font-medium ${
                   isActive ? 'text-indigo-600' : 'text-slate-600'
                 }`}
               >

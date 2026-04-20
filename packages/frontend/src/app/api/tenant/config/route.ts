@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { appConfig } from '@/lib/config';
+import { OPENAI_API_BASE_URL } from '@/lib/constants';
 import { apiFetch } from '@/lib/api/client';
 
 const BACKEND_URL = appConfig.apiUrl;
@@ -24,7 +25,7 @@ export async function GET(request: NextRequest) {
             provider: 'openai',
             api_key_encrypted: 'encrypted-key',
             api_key_iv: 'mock-iv',
-            base_url: 'https://api.openai.com',
+            base_url: OPENAI_API_BASE_URL,
             default_model: 'gpt-4',
             timeout_ms: 30000,
             is_active: true,

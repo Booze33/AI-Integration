@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import { apiClient, ChatHistorySession } from '../../../lib/api-client';
 import { apiFetch } from '../../../lib/api/client';
 import { getLoginRedirectPathForCurrentLocation } from '../../../lib/auth-redirect';
+import { useFocusTrap } from '../../../lib/useFocusTrap';
+import { usePageTitle } from '../../../lib/usePageTitle';
 import { useChatStream } from '../../../lib/useChatStream';
 
 interface ChatMessage {
@@ -208,8 +210,10 @@ function getHistoryPreview(session: ChatHistorySession): string {
 }
 
 export default function ChatPage() {
+  usePageTitle('Upload Chat | AI Integration Platform');
   const router = useRouter();
   const [user, setUser] = useState<UserInfo | null>(null);
+  const [isAuthResolved, setIsAuthResolved] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -251,6 +255,7 @@ export default function ChatPage() {
   const microphoneStreamRef = useRef<MediaStream | null>(null);
   const silenceTimeoutRef = useRef<number | null>(null);
   const transcriptionSessionIdRef = useRef<string | null>(null);
+  const historyDrawerRef = useRef<HTMLDivElement | null>(null);
 
   const composerValue = useMemo(() => voiceTranscript || input, [input, voiceTranscript]);
   const userMessageText = useMemo(() => composerValue.trim(), [composerValue]);
@@ -278,6 +283,7 @@ export default function ChatPage() {
     const start = (boundedPage - 1) * HISTORY_PAGE_SIZE;
     return filteredHistorySessions.slice(start, start + HISTORY_PAGE_SIZE);
   }, [filteredHistorySessions, historyPage, totalHistoryPages]);
+  useFocusTrap(isHistoryOpen, historyDrawerRef, () => setIsHistoryOpen(false));
 
   useEffect(() => {
     const savedHistory = localStorage.getItem(STORAGE_KEYS.history);
@@ -332,10 +338,12 @@ export default function ChatPage() {
         setUser(response.user);
       } catch {
         router.replace(getLoginRedirectPathForCurrentLocation());
+      } finally {
+        setIsAuthResolved(true);
       }
     }
 
-    verifyAuth();
+    void verifyAuth();
   }, [router]);
 
   useEffect(() => {
@@ -353,21 +361,6 @@ export default function ChatPage() {
       setHistoryPage(totalHistoryPages);
     }
   }, [historyPage, totalHistoryPages]);
-
-  useEffect(() => {
-    if (!isHistoryOpen) return;
-
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setIsHistoryOpen(false);
-      }
-    };
-
-    window.addEventListener('keydown', handleEscape);
-    return () => {
-      window.removeEventListener('keydown', handleEscape);
-    };
-  }, [isHistoryOpen]);
 
   const appendMessage = (message: ChatMessage) => {
     setMessages((prev) => [...prev, message]);
@@ -953,6 +946,23 @@ export default function ChatPage() {
     previousMessageCountRef.current = messages.length;
   }, [isStreaming, messages]);
 
+  if (!isAuthResolved) {
+    return (
+      <div className="min-h-screen bg-slate-100 p-0 md:p-6 overflow-x-hidden">
+        <div className="mx-auto flex h-[calc(100vh-4rem)] max-w-4xl items-center justify-center rounded-none bg-white p-4 shadow-lg md:h-[calc(100vh-3rem)] md:rounded-2xl md:p-6">
+          <div className="inline-flex items-center gap-3 text-sm text-slate-600">
+            <span className="h-5 w-5 animate-spin rounded-full border-2 border-slate-300 border-t-slate-600"></span>
+            Verifying session...
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return null;
+  }
+
   if (user && !['admin', 'member'].includes(user.role)) {
     return (
       <div className="min-h-screen flex items-center justify-center p-10">
@@ -1000,7 +1010,7 @@ export default function ChatPage() {
               <button
                 type="button"
                 onClick={() => setShowNewChatConfirm(true)}
-                className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                className="min-h-11 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
               >
                 New Chat
               </button>
@@ -1010,14 +1020,14 @@ export default function ChatPage() {
                 <button
                   type="button"
                   onClick={handleConfirmNewChat}
-                  className="font-semibold text-amber-900 underline"
+                  className="inline-flex min-h-11 items-center rounded-md px-3 py-2 text-sm font-semibold text-amber-900 hover:bg-amber-100"
                 >
                   Yes
                 </button>
                 <button
                   type="button"
                   onClick={() => setShowNewChatConfirm(false)}
-                  className="font-semibold text-slate-700 underline"
+                  className="inline-flex min-h-11 items-center rounded-md px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-white"
                 >
                   Cancel
                 </button>
@@ -1027,7 +1037,7 @@ export default function ChatPage() {
             <button
               type="button"
               onClick={openHistoryDrawer}
-              className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              className="min-h-11 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
             >
               History
             </button>
@@ -1154,7 +1164,7 @@ export default function ChatPage() {
             <button
               type="button"
               onClick={scrollToBottom}
-              className="absolute bottom-4 right-4 rounded-full bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-lg hover:bg-indigo-700"
+              className="absolute bottom-4 right-4 min-h-11 rounded-full bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-lg hover:bg-indigo-700"
             >
               Scroll to bottom
             </button>
@@ -1168,7 +1178,11 @@ export default function ChatPage() {
           {/* Text Input */}
           <div className="mx-auto flex max-w-4xl items-end gap-2">
             <div className="flex-1 space-y-2">
+              <label htmlFor="upload-chat-message-input" className="sr-only">
+                Message input
+              </label>
               <textarea
+                id="upload-chat-message-input"
                 ref={textareaRef}
                 rows={1}
                 value={composerValue}
@@ -1217,7 +1231,7 @@ export default function ChatPage() {
               type="button"
               onClick={toggleTranscription}
               disabled={isStreaming || isReadOnlyHistoryView}
-              className={`rounded-lg px-3 py-2 text-sm font-medium text-white ${
+              className={`min-h-11 rounded-lg px-4 py-2 text-sm font-medium text-white ${
                 isRecording || isConnectingTranscription
                   ? 'bg-red-600 hover:bg-red-700'
                   : 'bg-slate-700 hover:bg-slate-800'
@@ -1230,7 +1244,7 @@ export default function ChatPage() {
               type={isStreaming ? 'button' : 'submit'}
               disabled={!isStreaming && (!userMessageText || isReadOnlyHistoryView)}
               onClick={isStreaming ? abortStream : undefined}
-              className={`rounded-lg px-4 py-2 text-white ${
+              className={`min-h-11 rounded-lg px-4 py-2 text-white ${
                 isStreaming
                   ? 'bg-red-600 hover:bg-red-700'
                   : 'bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50'
@@ -1243,14 +1257,23 @@ export default function ChatPage() {
       </div>
 
       {isHistoryOpen && (
-        <div className="fixed inset-0 z-30 flex justify-end bg-slate-900/30">
-          <div className="h-full w-full max-w-md border-l border-slate-200 bg-white p-4 shadow-2xl">
+        <div className="fixed inset-0 z-30 flex items-end bg-slate-900/30 md:items-stretch md:justify-end">
+          <div
+            ref={historyDrawerRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="upload-chat-history-title"
+            tabIndex={-1}
+            className="max-h-[80vh] w-full overflow-y-auto rounded-t-2xl border border-slate-200 bg-white p-4 shadow-2xl md:h-full md:max-h-none md:max-w-md md:rounded-none md:border-l md:border-t-0"
+          >
             <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-slate-900">Conversation History</h2>
+              <h2 id="upload-chat-history-title" className="text-lg font-semibold text-slate-900">
+                Conversation History
+              </h2>
               <button
                 type="button"
                 onClick={() => setIsHistoryOpen(false)}
-                className="rounded-md px-2 py-1 text-sm text-slate-600 hover:bg-slate-100"
+                className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md px-3 py-2 text-sm text-slate-600 hover:bg-slate-100"
               >
                 Close
               </button>
@@ -1275,7 +1298,11 @@ export default function ChatPage() {
 
             {!isHistoryLoading && !historyError && (
               <div className="space-y-3">
+                <label htmlFor="upload-chat-history-search" className="sr-only">
+                  Search conversation history
+                </label>
                 <input
+                  id="upload-chat-history-search"
                   value={historySearchTerm}
                   onChange={(event) => setHistorySearchTerm(event.target.value)}
                   placeholder="Search history..."
@@ -1300,7 +1327,7 @@ export default function ChatPage() {
                           handleConfirmNewChat();
                           setIsHistoryOpen(false);
                         }}
-                        className="mt-3 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700"
+                        className="mt-3 min-h-11 rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
                       >
                         Start New Chat
                       </button>
@@ -1338,7 +1365,7 @@ export default function ChatPage() {
                         type="button"
                         onClick={() => setHistoryPage((current) => Math.max(1, current - 1))}
                         disabled={historyPage <= 1}
-                        className="rounded border border-slate-300 px-2 py-1 disabled:opacity-50"
+                        className="min-h-11 rounded border border-slate-300 px-3 py-2 text-sm disabled:opacity-50"
                       >
                         Prev
                       </button>
@@ -1348,7 +1375,7 @@ export default function ChatPage() {
                           setHistoryPage((current) => Math.min(totalHistoryPages, current + 1))
                         }
                         disabled={historyPage >= totalHistoryPages}
-                        className="rounded border border-slate-300 px-2 py-1 disabled:opacity-50"
+                        className="min-h-11 rounded border border-slate-300 px-3 py-2 text-sm disabled:opacity-50"
                       >
                         Next
                       </button>

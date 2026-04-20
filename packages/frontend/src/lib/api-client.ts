@@ -6,6 +6,7 @@
  */
 
 import { appConfig } from './config';
+import { OPENAI_API_BASE_URL } from './constants';
 import { ApiClientError, apiFetch, getLastRequestId } from './api/client';
 
 // ============================================================================
@@ -353,7 +354,6 @@ export class ApiClient {
   }
 
   async register(userData: RegisterRequest): Promise<RegisterResponse> {
-    console.log('Registering user with data:', this.baseUrl);
     const response = await this.request<RegisterResponse>('POST', '/api/auth/register', {
       body: userData,
     });
@@ -484,7 +484,7 @@ export class ApiClient {
             provider: 'openai',
             api_key_encrypted: 'encrypted-key',
             api_key_iv: 'mock-iv',
-            base_url: 'https://api.openai.com',
+            base_url: OPENAI_API_BASE_URL,
             default_model: 'gpt-4',
             timeout_ms: 30000,
             is_active: true,

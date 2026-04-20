@@ -3,8 +3,10 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { apiClient, User } from '../../../lib/api-client';
+import { usePageTitle } from '../../../lib/usePageTitle';
 
 export default function GeneralSettingsPage() {
+  usePageTitle('Settings - General | AI Integration Platform');
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);

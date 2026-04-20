@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import AuthPageShell from '../../components/auth/AuthPageShell';
 import { apiClient, RegisterRequest } from '../../lib/api-client';
+import { usePageTitle } from '../../lib/usePageTitle';
 
 interface RegisterFormData {
   email: string;
@@ -13,6 +14,7 @@ interface RegisterFormData {
 }
 
 export default function RegisterPage() {
+  usePageTitle('Register | AI Integration Platform');
   const router = useRouter();
   const [formData, setFormData] = useState<RegisterFormData>({
     email: '',

@@ -6,7 +6,6 @@
 
 export const shorthands = undefined;
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function up(pgm: any): Promise<void> {
   // Enable required extensions
   pgm.createExtension('uuid-ossp', { ifNotExists: true });
@@ -598,7 +597,6 @@ export async function up(pgm: any): Promise<void> {
   );
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function down(pgm: any): Promise<void> {
   // Drop views
   pgm.dropView({ schema: 'app', name: 'task_details' }, { ifExists: true });

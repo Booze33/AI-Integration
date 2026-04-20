@@ -3,14 +3,17 @@
 import { useEffect, useState } from 'react';
 import { ApiError, apiClient } from '../../../lib/api-client';
 import { useToast } from '../../../components/toast/ToastProvider';
+import { usePageTitle } from '../../../lib/usePageTitle';
 
 export default function ActiveSessionsPage() {
+  usePageTitle('Settings - Active Sessions | AI Integration Platform');
   const { showToast } = useToast();
   const [tokenIds, setTokenIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [copiedTokenId, setCopiedTokenId] = useState<string | null>(null);
   const [revoking, setRevoking] = useState<Record<string, boolean>>({});
+  const [confirmingTokenId, setConfirmingTokenId] = useState<string | null>(null);
 
   useEffect(() => {
     async function loadActiveTokens() {
@@ -47,6 +50,7 @@ export default function ActiveSessionsPage() {
 
   const handleRevokeToken = async (tokenId: string) => {
     const previousIds = tokenIds;
+    setConfirmingTokenId(null);
     setRevoking((prev) => ({ ...prev, [tokenId]: true }));
     setError(null);
 
@@ -122,20 +126,42 @@ export default function ActiveSessionsPage() {
                   <button
                     type="button"
                     onClick={() => handleCopyToken(tokenId)}
-                    className="rounded-md border border-gray-300 px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                    className="min-h-11 rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
                   >
                     {copiedTokenId === tokenId ? 'Copied' : 'Copy'}
                   </button>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => handleRevokeToken(tokenId)}
-                  disabled={!!revoking[tokenId]}
-                  className="rounded-md border border-red-300 bg-white px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-60"
-                >
-                  {revoking[tokenId] ? 'Revoking...' : 'Revoke'}
-                </button>
+                {confirmingTokenId === tokenId ? (
+                  <div className="inline-flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-2 py-1.5 text-sm">
+                    <span className="text-amber-900">Revoke this session?</span>
+                    <button
+                      type="button"
+                      onClick={() => handleRevokeToken(tokenId)}
+                      disabled={!!revoking[tokenId]}
+                      className="inline-flex min-h-11 items-center rounded-md px-3 py-2 font-semibold text-amber-900 hover:bg-amber-100 disabled:opacity-60"
+                    >
+                      {revoking[tokenId] ? 'Revoking...' : 'Yes'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmingTokenId(null)}
+                      disabled={!!revoking[tokenId]}
+                      className="inline-flex min-h-11 items-center rounded-md px-3 py-2 font-semibold text-slate-700 hover:bg-white disabled:opacity-60"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmingTokenId(tokenId)}
+                    disabled={!!revoking[tokenId]}
+                    className="min-h-11 rounded-md border border-red-300 bg-white px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-60"
+                  >
+                    Revoke
+                  </button>
+                )}
               </li>
             ))}
           </ul>

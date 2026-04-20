@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import AuthPageShell from '../../components/auth/AuthPageShell';
 import { apiClient, ApiError, LoginRequest } from '../../lib/api-client';
 import { resolvePostLoginRedirect } from '../../lib/auth-redirect';
+import { usePageTitle } from '../../lib/usePageTitle';
 
 interface LoginFormData {
   email: string;
@@ -13,6 +14,7 @@ interface LoginFormData {
 }
 
 export default function LoginPage() {
+  usePageTitle('Sign In | AI Integration Platform');
   const router = useRouter();
   const searchParams = useSearchParams();
   const [formData, setFormData] = useState<LoginFormData>({

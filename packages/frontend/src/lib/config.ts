@@ -1,7 +1,9 @@
+import { DEFAULT_API_BASE_URL } from './constants';
+
 const isProduction = process.env.NODE_ENV === 'production';
 
 const devFallbacks: Record<'NEXT_PUBLIC_API_URL' | 'NEXT_PUBLIC_DEFAULT_TENANT_ID', string> = {
-  NEXT_PUBLIC_API_URL: 'http://localhost:3001',
+  NEXT_PUBLIC_API_URL: DEFAULT_API_BASE_URL,
   NEXT_PUBLIC_DEFAULT_TENANT_ID: 'default-tenant',
 };
 

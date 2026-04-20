@@ -1,8 +1,11 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { ApiError, apiClient, User } from '../../../lib/api-client';
+import { OPENAI_API_V1_BASE_URL } from '../../../lib/constants';
 import { useToast } from '../../../components/toast/ToastProvider';
+import { useFocusTrap } from '../../../lib/useFocusTrap';
+import { usePageTitle } from '../../../lib/usePageTitle';
 
 interface Provider {
   name: string;
@@ -27,6 +30,7 @@ interface TenantConfig {
 }
 
 export default function SettingsPage() {
+  usePageTitle('Settings - AI Providers | AI Integration Platform');
   const { showToast } = useToast();
   const [user, setUser] = useState<User | null>(null);
   const [providers, setProviders] = useState<Provider[]>([]);
@@ -52,27 +56,14 @@ export default function SettingsPage() {
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const modalRef = useRef<HTMLDivElement | null>(null);
 
   const canManageProviders = user ? ['admin', 'owner'].includes(user.role) : false;
+  useFocusTrap(showAddForm, modalRef, () => setShowAddForm(false));
 
   useEffect(() => {
     loadData();
   }, []);
-
-  useEffect(() => {
-    if (!showAddForm) return;
-
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        handleCancel();
-      }
-    };
-
-    window.addEventListener('keydown', handleEscape);
-    return () => {
-      window.removeEventListener('keydown', handleEscape);
-    };
-  }, [showAddForm]);
 
   const loadData = async () => {
     try {
@@ -471,9 +462,16 @@ export default function SettingsPage() {
         {showAddForm && (
           <div className="fixed inset-0 z-50 bg-gray-600/50">
             <div className="flex min-h-full items-end md:block md:overflow-y-auto md:py-16">
-              <div className="relative w-full rounded-t-2xl border bg-white p-5 shadow-lg md:mx-auto md:w-full md:max-w-2xl md:rounded-md">
+              <div
+                ref={modalRef}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="provider-modal-title"
+                tabIndex={-1}
+                className="relative w-full rounded-t-2xl border bg-white p-5 shadow-lg md:mx-auto md:w-full md:max-w-2xl md:rounded-md"
+              >
                 <div className="mt-3">
-                  <h3 className="text-lg font-medium text-gray-900 mb-4">
+                  <h3 id="provider-modal-title" className="text-lg font-medium text-gray-900 mb-4">
                     {editingConfig ? 'Edit Configuration' : 'Add AI Provider Configuration'}
                   </h3>
 
@@ -531,7 +529,7 @@ export default function SettingsPage() {
                         value={formData.base_url}
                         onChange={(e) => setFormData({ ...formData, base_url: e.target.value })}
                         className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                        placeholder="https://api.openai.com/v1"
+                        placeholder={OPENAI_API_V1_BASE_URL}
                       />
                     </div>
 

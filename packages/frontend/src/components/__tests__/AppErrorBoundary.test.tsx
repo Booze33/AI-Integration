@@ -15,17 +15,18 @@ vi.mock('../../lib/api-client', () => ({
   getLastFailedRequestCorrelationId: vi.fn(() => 'corr-dev-123'),
 }));
 
-function ThrowRenderError() {
+const ThrowRenderError: React.FC = () => {
   throw new Error('Boundary render failure');
-}
+};
 
 describe('AppErrorBoundary', () => {
   beforeEach(() => {
-    process.env.NODE_ENV = 'development';
+    vi.stubEnv('NODE_ENV', 'development');
     vi.spyOn(console, 'error').mockImplementation(() => {});
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     vi.restoreAllMocks();
   });
 

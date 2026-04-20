@@ -20,7 +20,6 @@ export async function GET(request: NextRequest) {
     // If backend returns 404, it might not have the dashboard route
     // Return mock data instead
     if (response.status === 404) {
-      console.log('Backend dashboard route not found, returning mock data');
       return NextResponse.json({
         success: true,
         stats: {
