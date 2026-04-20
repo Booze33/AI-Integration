@@ -383,6 +383,20 @@ GET /api/diagnostics/report
 
 #### Prometheus Metrics
 
+The diagnostics router now exposes a built-in Prometheus endpoint:
+
+```bash
+curl -s http://localhost:3001/api/diagnostics/metrics/prometheus
+
+# Example output
+# HELP database_queries_total Total number of queries
+# TYPE database_queries_total counter
+# database_queries_total 42
+# HELP database_query_duration_ms Average query duration
+# TYPE database_query_duration_ms gauge
+# database_query_duration_ms 12.34
+```
+
 ```typescript
 import { exportPrometheusMetrics } from '@/database';
 

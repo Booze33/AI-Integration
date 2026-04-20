@@ -169,13 +169,13 @@ describe('requestLogger middleware', () => {
   });
 
   describe('user / tenant context', () => {
-    it('includes userId in the response log when req.user is set', async () => {
+    it('includes userId in the response log when req.user.userId is set', async () => {
       const { lines, write } = createCapture();
       const app = express();
       app.use(requestLogger({ write }));
-      // Simulate auth middleware setting req.user
+      // Simulate auth middleware setting req.user with TokenPayload shape
       app.get('/hello', (req: any, res: Response) => {
-        req.user = { sub: 'user-42' };
+        req.user = { userId: 'user-42' };
         res.json({ ok: true });
       });
 
@@ -183,6 +183,21 @@ describe('requestLogger middleware', () => {
 
       const entry = lines.find((l) => l.phase === 'response') as ResponseLogEntry;
       expect(entry?.userId).toBe('user-42');
+    });
+
+    it('falls back to req.user.sub for legacy payloads', async () => {
+      const { lines, write } = createCapture();
+      const app = express();
+      app.use(requestLogger({ write }));
+      app.get('/hello', (req: any, res: Response) => {
+        req.user = { sub: 'legacy-user-1' };
+        res.json({ ok: true });
+      });
+
+      await request(app).get('/hello');
+
+      const entry = lines.find((l) => l.phase === 'response') as ResponseLogEntry;
+      expect(entry?.userId).toBe('legacy-user-1');
     });
 
     it('includes tenantId in the response log when req.tenantId is set', async () => {
@@ -198,6 +213,21 @@ describe('requestLogger middleware', () => {
 
       const entry = lines.find((l) => l.phase === 'response') as ResponseLogEntry;
       expect(entry?.tenantId).toBe('tenant-99');
+    });
+
+    it('includes tenantId in the response log when req.user.tenantId is set', async () => {
+      const { lines, write } = createCapture();
+      const app = express();
+      app.use(requestLogger({ write }));
+      app.get('/hello', (req: any, res: Response) => {
+        req.user = { userId: 'user-42', tenantId: 'tenant-from-user' };
+        res.json({ ok: true });
+      });
+
+      await request(app).get('/hello');
+
+      const entry = lines.find((l) => l.phase === 'response') as ResponseLogEntry;
+      expect(entry?.tenantId).toBe('tenant-from-user');
     });
 
     it('omits userId / tenantId when not set', async () => {

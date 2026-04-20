@@ -107,9 +107,18 @@ export function requestLogger(config: LoggerConfig = {}): RequestHandler {
     res.on('finish', () => {
       const durationMs = Math.round(Number(process.hrtime.bigint() - startNs) / 1_000) / 1_000; // µs → ms (3dp)
 
-      // Grab user / tenant context if auth/tenant middleware added them
-      const userId = (req as Request & { user?: { sub?: string } }).user?.sub ?? undefined;
-      const tenantId = (req as Request & { tenantId?: string }).tenantId ?? undefined;
+      // Grab user / tenant context if auth/tenant middleware added them.
+      // Support both the app's TokenPayload shape (userId, tenantId) and
+      // legacy JWT claim style (sub).
+      const userContext = (
+        req as Request & {
+          user?: { userId?: string; sub?: string; tenantId?: string };
+          tenantId?: string;
+        }
+      ).user;
+      const userId = userContext?.userId ?? userContext?.sub ?? undefined;
+      const tenantId =
+        (req as Request & { tenantId?: string }).tenantId ?? userContext?.tenantId ?? undefined;
 
       const responseEntry: LogEntry = {
         phase: 'response',

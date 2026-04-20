@@ -105,6 +105,21 @@ export function createDiagnosticsRouter(ctx: DiagnosticsContext): Router {
   });
 
   /**
+   * GET /diagnostics/metrics/prometheus
+   * Metrics snapshot in Prometheus text format
+   */
+  router.get('/metrics/prometheus', (_req: Request, res: Response) => {
+    if (!ctx.metricsCollector) {
+      res.status(503).json({ error: 'Metrics not available' });
+      return;
+    }
+
+    const text = exportPrometheusMetrics(ctx);
+    res.setHeader('Content-Type', 'text/plain; version=0.0.4; charset=utf-8');
+    res.send(text);
+  });
+
+  /**
    * GET /diagnostics/metrics/window?duration=60000
    * Metrics over time window (in milliseconds)
    */
