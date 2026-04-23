@@ -57,7 +57,6 @@ export default function SettingsPage() {
 
   const [errors, setErrors] = useState<Record<string, string>>({});
   const modalRef = useRef<HTMLDivElement | null>(null);
-
   const canManageProviders = user ? ['admin', 'owner'].includes(user.role) : false;
   useFocusTrap(showAddForm, modalRef, () => setShowAddForm(false));
 
