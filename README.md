@@ -25,7 +25,9 @@ git clone <your-repo-url>
 cd AI-Integration
 pnpm install
 cp .env.example .env
-docker compose up -d postgres redis
+cp packages/backend/.env.example packages/backend/.env
+cp packages/frontend/.env.example packages/frontend/.env.local
+docker compose up -d
 pnpm --filter backend run generate-keys
 pnpm dev
 ```
