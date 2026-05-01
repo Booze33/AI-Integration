@@ -12,12 +12,28 @@ import { createTenantAIConfigService, InMemoryTenantAIConfigRepository } from '.
 
 const mockAuditLog = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 const mockAuditServiceLog = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+const mockAuthUser = vi.hoisted(() => ({
+  userId: 'test-user',
+  email: 'test@example.com',
+  role: 'admin',
+  tenantId: 'test-tenant' as string | undefined,
+}));
 
 // Mock authentication middleware
 vi.mock('../../auth/middleware', () => ({
   authenticate: (req: any, res: any, next: any) => {
-    req.user = { userId: 'test-user', email: 'test@example.com', role: 'admin' };
-    req.tenantId = 'test-tenant';
+    req.user = { ...mockAuthUser };
+    next();
+  },
+  requireTenant: () => (req: any, res: any, next: any) => {
+    if (!req.user?.tenantId) {
+      res.status(400).json({
+        error: 'Bad Request',
+        message: 'Tenant ID required in JWT token',
+      });
+      return;
+    }
+    req.tenantId = req.user.tenantId;
     next();
   },
   requireRole: () => (req: any, res: any, next: any) => next(),
@@ -50,6 +66,11 @@ describe('Tenant Config API Routes', () => {
   let service: any;
 
   beforeEach(() => {
+    mockAuthUser.userId = 'test-user';
+    mockAuthUser.email = 'test@example.com';
+    mockAuthUser.role = 'admin';
+    mockAuthUser.tenantId = 'test-tenant';
+
     // Create test service with in-memory repository
     const repository = new InMemoryTenantAIConfigRepository();
     service = createTenantAIConfigService('test-key', repository);
@@ -408,7 +429,7 @@ describe('Tenant Config API Routes', () => {
 
       // And it must no longer appear in the active configs list
       const activeConfigs = await service.findActiveByTenant('test-tenant');
-      const stillActive = activeConfigs.find((c) => c.id === created.id);
+      const stillActive = activeConfigs.find((c: { id: string }) => c.id === created.id);
       expect(stillActive).toBeUndefined();
     });
   });
@@ -444,6 +465,20 @@ describe('Tenant Config API Routes', () => {
       expect(untouched).not.toBeNull();
       expect(untouched!.is_active).toBe(true);
       expect(untouched!.default_model).toBeUndefined();
+    });
+
+    it('rejects requests when JWT tenant is missing even if x-tenant-id is supplied', async () => {
+      mockAuthUser.tenantId = undefined;
+
+      const response = await request(app)
+        .get('/api/tenant/config')
+        .set('x-tenant-id', 'tenant-from-header')
+        .expect(400);
+
+      expect(response.body).toEqual({
+        error: 'Bad Request',
+        message: 'Tenant ID required in JWT token',
+      });
     });
   });
 

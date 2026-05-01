@@ -32,6 +32,14 @@ pnpm --filter backend run generate-keys
 pnpm dev
 ```
 
+Windows PowerShell equivalent for env file copies:
+
+```powershell
+Copy-Item .env.example .env
+Copy-Item packages/backend/.env.example packages/backend/.env
+Copy-Item packages/frontend/.env.example packages/frontend/.env.local
+```
+
 Open:
 
 - Frontend: http://localhost:3000
@@ -114,6 +122,8 @@ How it works:
   - JWT `tenantId`
   - request body `tenantId` or `tenant_id`
   - `x-tenant-id` header (for relevant auth flows)
+- After authentication, protected routes require tenant context from JWT `tenantId` only.
+  - Caller-controlled `x-tenant-id` and query tenant values are not accepted for protected routes.
 - Tenant provider configs are queried and mutated per tenant.
 - Database schema includes tenant-scoped entities and policies/helpers for tenant context.
 

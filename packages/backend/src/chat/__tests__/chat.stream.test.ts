@@ -10,7 +10,12 @@ import express from 'express';
 import type { Pool } from 'pg';
 import { createChatRoutes } from '../index';
 
-let mockUser = {
+let mockUser: {
+  userId: string;
+  email: string;
+  role: string;
+  tenantId?: string;
+} = {
   userId: 'user-1',
   email: 'tester@example.com',
   role: 'member',
@@ -23,6 +28,18 @@ vi.mock('../../auth/middleware', () => ({
     next();
   },
   requireViewer: (_req: any, _res: any, next: any) => next(),
+  requireTenant: () => (req: any, res: any, next: any) => {
+    const tenantId = req.user?.tenantId;
+    if (!tenantId) {
+      res.status(400).json({
+        error: 'Bad Request',
+        message: 'Tenant ID required in JWT token',
+      });
+      return;
+    }
+    req.tenantId = tenantId;
+    next();
+  },
 }));
 
 const streamCache = new Map<string, any>();
@@ -66,6 +83,29 @@ vi.mock('../../providers', () => ({
   getProvider: (...args: any[]) => mockGetProvider(...args),
 }));
 
+vi.mock('../../usage-caps', () => ({
+  UsageCapsService: {
+    fromPool: vi.fn(() => ({
+      checkAllowance: vi.fn(async () => ({
+        allowed: true,
+        dailyCapTokens: null,
+        monthlyCapTokens: null,
+        dailyUsedTokens: 0,
+        monthlyUsedTokens: 0,
+        estimatedRequestTokens: 0,
+        retryAtUtc: null,
+      })),
+      recordUsage: vi.fn(async () => {}),
+    })),
+  },
+  estimateMessagesTokens: vi.fn(() => 100),
+  estimateTextTokens: vi.fn(() => 50),
+}));
+
+vi.mock('../../audit', () => ({
+  logAudit: vi.fn(async () => {}),
+}));
+
 function createMockPool(): Pool {
   return {
     query: vi.fn(async (sql: string) => {
@@ -103,6 +143,28 @@ describe('Chat Stream Endpoint', () => {
         error: 'Invalid request',
         message: 'messages array is required and must not be empty',
       });
+    });
+
+    it('should reject caller-provided tenant header when JWT tenant is missing', async () => {
+      const previousUser = mockUser;
+      mockUser = {
+        ...mockUser,
+        tenantId: undefined,
+      };
+      try {
+        const response = await request(app)
+          .post('/api/chat')
+          .set('x-tenant-id', 'tenant-from-header')
+          .send({ messages: [{ role: 'user', content: 'Hello' }] })
+          .expect(400);
+
+        expect(response.body).toEqual({
+          error: 'Bad Request',
+          message: 'Tenant ID required in JWT token',
+        });
+      } finally {
+        mockUser = previousUser;
+      }
     });
 
     it('should reject missing messages', async () => {

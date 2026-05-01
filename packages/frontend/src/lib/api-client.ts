@@ -181,6 +181,40 @@ export interface ProviderInfo {
   requiresApiKey: boolean;
 }
 
+export interface TenantUsageCaps {
+  tenantId: string;
+  dailyCapTokens: number | null;
+  monthlyCapTokens: number | null;
+  hardCapEnabled: boolean;
+}
+
+export interface TenantUsageSnapshot {
+  tenantId: string;
+  dailyUsedTokens: number;
+  monthlyUsedTokens: number;
+  usageDateUtc: string;
+  usageMonthUtc: string;
+}
+
+export interface TenantUsageCapsResponse {
+  success: boolean;
+  data: {
+    caps: TenantUsageCaps;
+    usage: TenantUsageSnapshot;
+  };
+}
+
+export interface UpdateTenantUsageCapsRequest {
+  dailyCapTokens?: number | null;
+  monthlyCapTokens?: number | null;
+  hardCapEnabled?: boolean;
+}
+
+export interface TenantUsageSnapshotResponse {
+  success: boolean;
+  data: TenantUsageSnapshot;
+}
+
 export interface ProvidersResponse {
   success: boolean;
   data: ProviderInfo[];
@@ -557,6 +591,56 @@ export class ApiClient {
     }
 
     return this.request<ProvidersResponse>('GET', '/api/tenant/providers');
+  }
+
+  async getTenantUsageCaps(): Promise<TenantUsageCapsResponse> {
+    if (this.mockMode) {
+      return {
+        success: true,
+        data: {
+          caps: {
+            tenantId: 'mock-tenant',
+            dailyCapTokens: 100000,
+            monthlyCapTokens: 2000000,
+            hardCapEnabled: true,
+          },
+          usage: {
+            tenantId: 'mock-tenant',
+            dailyUsedTokens: 2000,
+            monthlyUsedTokens: 2500,
+            usageDateUtc: new Date().toISOString().slice(0, 10),
+            usageMonthUtc: new Date().toISOString().slice(0, 7) + '-01',
+          },
+        },
+      };
+    }
+
+    return this.request<TenantUsageCapsResponse>('GET', '/api/tenant/usage-caps');
+  }
+
+  async updateTenantUsageCaps(
+    payload: UpdateTenantUsageCapsRequest
+  ): Promise<TenantUsageCapsResponse> {
+    return this.request<TenantUsageCapsResponse>('PUT', '/api/tenant/usage-caps', {
+      body: payload,
+    });
+  }
+
+  async getTenantUsageSnapshot(): Promise<TenantUsageSnapshotResponse> {
+    if (this.mockMode) {
+      return {
+        success: true,
+        data: {
+          tenantId: 'mock-tenant',
+          dailyUsedTokens: 2000,
+          monthlyUsedTokens: 2500,
+          usageDateUtc: new Date().toISOString().slice(0, 10),
+          usageMonthUtc: new Date().toISOString().slice(0, 7) + '-01',
+        },
+      };
+    }
+
+    return this.request<TenantUsageSnapshotResponse>('GET', '/api/tenant/usage-caps/usage');
   }
 
   // ============================================================================

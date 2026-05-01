@@ -7,8 +7,9 @@
 
 import { Router as ExpressRouter, Request, Response } from 'express';
 import { Pool } from 'pg';
-import { authenticate, requireViewer, AuthenticatedRequest } from '../auth/middleware';
+import { authenticate, requireViewer, requireTenant, AuthenticatedRequest } from '../auth/middleware';
 import { getPipelineService } from '../pipeline/singleton';
+import { UsageCapsService } from '../usage-caps';
 
 /**
  * Create dashboard routes with database pool
@@ -16,6 +17,7 @@ import { getPipelineService } from '../pipeline/singleton';
 export function createDashboardRoutes(pool: Pool): ExpressRouter {
   const router: ExpressRouter = ExpressRouter();
   const pipelineService = getPipelineService();
+  const usageCapsService = UsageCapsService.fromPool(pool);
 
   /**
    * GET /stats
@@ -26,6 +28,7 @@ export function createDashboardRoutes(pool: Pool): ExpressRouter {
     '/stats',
     authenticate as any,
     requireViewer as any,
+    requireTenant({ allowHeader: false, allowQuery: false }) as any,
     async (req: Request, res: Response) => {
       const authReq = req as AuthenticatedRequest;
 
@@ -49,8 +52,13 @@ export function createDashboardRoutes(pool: Pool): ExpressRouter {
         // Get queue statistics
         const queueStats = await pipelineService.getQueueStats();
 
-        // Estimate tokens used
-        const tokensUsed = await estimateTokensUsed(pool, userId);
+        const tenantId = authReq.tenantId;
+        const usageSnapshot = tenantId
+          ? await usageCapsService.getUsageSnapshot(tenantId)
+          : {
+              monthlyUsedTokens: 0,
+            };
+        const tokensUsed = usageSnapshot.monthlyUsedTokens;
 
         // Estimate API calls (chat sessions + file uploads)
         const apiCalls = chatStats.totalChats + fileStats.totalFiles;
@@ -143,34 +151,6 @@ async function getFileStatisticsFromJobs(pipelineService: any): Promise<{ totalF
   } catch (error) {
     console.error('Error getting file statistics from jobs:', error);
     return { totalFiles: 0 };
-  }
-}
-
-/**
- * Estimate tokens used by a user
- * This is a simplified estimation - in production, you would track actual token usage
- */
-async function estimateTokensUsed(pool: Pool, userId: string): Promise<number> {
-  try {
-    // For now, estimate based on chat history message length
-    const result = await pool.query(`SELECT messages FROM app.chat_history WHERE user_id = $1`, [
-      userId,
-    ]);
-
-    let totalTokens = 0;
-    for (const row of result.rows) {
-      const messages = row.messages || [];
-      for (const message of messages) {
-        // Rough estimate: 1 token ≈ 4 characters for English text
-        const content = message.content || '';
-        totalTokens += Math.ceil(content.length / 4);
-      }
-    }
-
-    return totalTokens;
-  } catch (error) {
-    console.error('Error estimating tokens used:', error);
-    return 0;
   }
 }
 

@@ -40,6 +40,12 @@ export interface ChatStreamChunk {
   delta: Partial<ChatMessage>;
   model: string;
   finishReason?: string;
+  /** Present on the final chunk when the provider returns native token counts. */
+  usage?: {
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+  };
 }
 
 // Transcription Types

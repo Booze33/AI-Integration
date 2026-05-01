@@ -29,6 +29,21 @@ interface TenantConfig {
   updated_at: string;
 }
 
+interface TenantUsageCaps {
+  tenantId: string;
+  dailyCapTokens: number | null;
+  monthlyCapTokens: number | null;
+  hardCapEnabled: boolean;
+}
+
+interface TenantUsageSnapshot {
+  tenantId: string;
+  dailyUsedTokens: number;
+  monthlyUsedTokens: number;
+  usageDateUtc: string;
+  usageMonthUtc: string;
+}
+
 export default function SettingsPage() {
   usePageTitle('Settings - AI Providers | AI Integration Platform');
   const { showToast } = useToast();
@@ -43,6 +58,15 @@ export default function SettingsPage() {
   const [deleteError, setDeleteError] = useState<{ configId: string; message: string } | null>(
     null
   );
+  const [usageCaps, setUsageCaps] = useState<TenantUsageCaps | null>(null);
+  const [usageSnapshot, setUsageSnapshot] = useState<TenantUsageSnapshot | null>(null);
+  const [capsSaving, setCapsSaving] = useState(false);
+  const [capsError, setCapsError] = useState<string | null>(null);
+  const [capsFormData, setCapsFormData] = useState({
+    dailyCapTokens: '',
+    monthlyCapTokens: '',
+    hardCapEnabled: true,
+  });
 
   // Form state
   const [formData, setFormData] = useState({
@@ -78,15 +102,31 @@ export default function SettingsPage() {
       if (!['admin', 'owner'].includes(currentUserResponse.user.role)) {
         setProviders([]);
         setConfigs([]);
+        setUsageCaps(null);
+        setUsageSnapshot(null);
         return;
       }
 
-      const [providersResponse, configsResponse] = await Promise.all([
+      const [providersResponse, configsResponse, usageCapsResponse] = await Promise.all([
         apiClient.getProviders(),
         apiClient.getTenantConfigs(),
+        apiClient.getTenantUsageCaps(),
       ]);
       setProviders(providersResponse.data);
       setConfigs(configsResponse.data);
+      setUsageCaps(usageCapsResponse.data.caps);
+      setUsageSnapshot(usageCapsResponse.data.usage);
+      setCapsFormData({
+        dailyCapTokens:
+          usageCapsResponse.data.caps.dailyCapTokens === null
+            ? ''
+            : String(usageCapsResponse.data.caps.dailyCapTokens),
+        monthlyCapTokens:
+          usageCapsResponse.data.caps.monthlyCapTokens === null
+            ? ''
+            : String(usageCapsResponse.data.caps.monthlyCapTokens),
+        hardCapEnabled: usageCapsResponse.data.caps.hardCapEnabled,
+      });
     } catch (error) {
       console.error('Failed to load data:', error);
       if (!(error instanceof ApiError && (error.statusCode === 401 || error.statusCode === 403))) {
@@ -277,6 +317,50 @@ export default function SettingsPage() {
     }
   };
 
+  const handleSaveTokenCaps = async () => {
+    if (!canManageProviders) {
+      return;
+    }
+
+    try {
+      setCapsSaving(true);
+      setCapsError(null);
+
+      const parsedDaily = capsFormData.dailyCapTokens
+        ? Number(capsFormData.dailyCapTokens)
+        : null;
+      const parsedMonthly = capsFormData.monthlyCapTokens
+        ? Number(capsFormData.monthlyCapTokens)
+        : null;
+
+      if (parsedDaily !== null && (!Number.isInteger(parsedDaily) || parsedDaily <= 0)) {
+        setCapsError('Daily cap must be a positive integer.');
+        return;
+      }
+
+      if (parsedMonthly !== null && (!Number.isInteger(parsedMonthly) || parsedMonthly <= 0)) {
+        setCapsError('Monthly cap must be a positive integer.');
+        return;
+      }
+
+      const response = await apiClient.updateTenantUsageCaps({
+        dailyCapTokens: parsedDaily,
+        monthlyCapTokens: parsedMonthly,
+        hardCapEnabled: capsFormData.hardCapEnabled,
+      });
+
+      setUsageCaps(response.data.caps);
+      setUsageSnapshot(response.data.usage);
+      showToast('Token usage caps updated.', 'success');
+    } catch (error) {
+      console.error('Failed to update token caps:', error);
+      setCapsError(error instanceof Error ? error.message : 'Failed to update token usage caps.');
+      showToast('Failed to update token usage caps.', 'error');
+    } finally {
+      setCapsSaving(false);
+    }
+  };
+
   const getProviderDisplayName = (providerName: string) => {
     const provider = providers.find((p) => p.name === providerName);
     return provider?.displayName || providerName;
@@ -367,6 +451,90 @@ export default function SettingsPage() {
             {pageError}
           </div>
         ) : null}
+
+        <section className="mt-6 rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900">Tenant Token Usage Caps</h3>
+              <p className="mt-1 text-sm text-gray-600">
+                Configure hard daily/monthly limits to prevent accidental AI overspend.
+              </p>
+            </div>
+            <span className="inline-flex items-center rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-700">
+              Daily used: {usageSnapshot?.dailyUsedTokens ?? 0} | Monthly used:{' '}
+              {usageSnapshot?.monthlyUsedTokens ?? 0}
+            </span>
+          </div>
+
+          <div className="mt-4 grid gap-4 md:grid-cols-3">
+            <div>
+              <label htmlFor="daily-cap" className="block text-sm font-medium text-gray-700">
+                Daily Cap (tokens)
+              </label>
+              <input
+                id="daily-cap"
+                type="number"
+                min="1"
+                value={capsFormData.dailyCapTokens}
+                onChange={(e) =>
+                  setCapsFormData((prev) => ({ ...prev, dailyCapTokens: e.target.value }))
+                }
+                className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-blue-500"
+                placeholder="Leave blank for unlimited"
+              />
+            </div>
+            <div>
+              <label htmlFor="monthly-cap" className="block text-sm font-medium text-gray-700">
+                Monthly Cap (tokens)
+              </label>
+              <input
+                id="monthly-cap"
+                type="number"
+                min="1"
+                value={capsFormData.monthlyCapTokens}
+                onChange={(e) =>
+                  setCapsFormData((prev) => ({ ...prev, monthlyCapTokens: e.target.value }))
+                }
+                className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-blue-500"
+                placeholder="Leave blank for unlimited"
+              />
+            </div>
+            <div className="flex items-end">
+              <label className="inline-flex items-center gap-2 rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-700">
+                <input
+                  type="checkbox"
+                  checked={capsFormData.hardCapEnabled}
+                  onChange={(e) =>
+                    setCapsFormData((prev) => ({ ...prev, hardCapEnabled: e.target.checked }))
+                  }
+                />
+                Enforce hard cap (429 on exceed)
+              </label>
+            </div>
+          </div>
+
+          {capsError ? (
+            <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {capsError}
+            </div>
+          ) : null}
+
+          <div className="mt-4 flex justify-end">
+            <button
+              type="button"
+              onClick={handleSaveTokenCaps}
+              disabled={capsSaving}
+              className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+            >
+              {capsSaving ? 'Saving caps...' : 'Save Token Caps'}
+            </button>
+          </div>
+
+          <div className="mt-3 text-xs text-gray-500">
+            Current caps: Daily {usageCaps?.dailyCapTokens ?? 'Unlimited'} | Monthly{' '}
+            {usageCaps?.monthlyCapTokens ?? 'Unlimited'}
+          </div>
+        </section>
 
         {/* Configurations List */}
         <div className="mt-8">

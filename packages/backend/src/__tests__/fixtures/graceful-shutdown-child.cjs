@@ -1,3 +1,5 @@
+/* global clearInterval, clearTimeout, process, setImmediate, setInterval, setTimeout */
+
 const http = require('http');
 
 const openSockets = new Set();

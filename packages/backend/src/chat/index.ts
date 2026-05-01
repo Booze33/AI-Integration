@@ -15,7 +15,9 @@ import { getProvider, ChatMessage, ChatOptions } from '../providers';
 import type { AIProvider } from '../providers';
 import { randomUUID } from 'crypto';
 import { Pool } from 'pg';
-import { authenticate, requireViewer, AuthenticatedRequest } from '../auth/middleware';
+import { authenticate, requireViewer, requireTenant, AuthenticatedRequest } from '../auth/middleware';
+import { logAudit } from '../audit';
+import { UsageCapsService, estimateMessagesTokens, estimateTextTokens } from '../usage-caps';
 import {
   storeStreamState,
   getStreamState,
@@ -274,6 +276,7 @@ export function createChatRoutes(pool: Pool): ExpressRouter {
     '/chat',
     authenticate as any,
     requireViewer as any,
+    requireTenant({ allowHeader: false, allowQuery: false }) as any,
     async (req: Request, res: Response, next: NextFunction) => {
       try {
         const authReq = req as AuthenticatedRequest;
@@ -339,6 +342,7 @@ export function createChatRoutes(pool: Pool): ExpressRouter {
     '/chat/transcribe/session',
     authenticate as any,
     requireViewer as any,
+    requireTenant({ allowHeader: false, allowQuery: false }) as any,
     async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
       try {
         if (!req.user) {
@@ -417,6 +421,7 @@ export function createChatRoutes(pool: Pool): ExpressRouter {
     '/chat/transcribe/:sessionId',
     authenticate as any,
     requireViewer as any,
+    requireTenant({ allowHeader: false, allowQuery: false }) as any,
     async (req: AuthenticatedRequest, res: Response) => {
       if (!req.user) {
         res.status(401).json({ error: 'Unauthorized', message: 'Not authenticated' });
@@ -476,6 +481,7 @@ export function createChatRoutes(pool: Pool): ExpressRouter {
     '/chat/transcribe/:sessionId',
     authenticate as any,
     requireViewer as any,
+    requireTenant({ allowHeader: false, allowQuery: false }) as any,
     express.raw({ type: '*/*' }),
     async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
       try {
@@ -519,6 +525,7 @@ export function createChatRoutes(pool: Pool): ExpressRouter {
     '/chat/transcribe/:sessionId',
     authenticate as any,
     requireViewer as any,
+    requireTenant({ allowHeader: false, allowQuery: false }) as any,
     async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
       try {
         if (!req.user) {
@@ -550,6 +557,7 @@ export function createChatRoutes(pool: Pool): ExpressRouter {
     '/chat/history',
     authenticate as any,
     requireViewer as any,
+    requireTenant({ allowHeader: false, allowQuery: false }) as any,
     async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
       try {
         if (!req.user) {
@@ -579,6 +587,7 @@ export function createChatRoutes(pool: Pool): ExpressRouter {
     '/chat/history',
     authenticate as any,
     requireViewer as any,
+    requireTenant({ allowHeader: false, allowQuery: false }) as any,
     async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
       try {
         if (!req.user) {
@@ -644,9 +653,57 @@ async function startNewStream(
   req: AuthenticatedRequest,
   res: Response,
   body: ChatRequestBody,
-  user: { userId: string; email: string; role?: string } | undefined,
+  user: { userId: string; email: string; role?: string; tenantId?: string } | undefined,
   pool: Pool
 ): Promise<void> {
+  const tenantId = req.tenantId || user?.tenantId;
+  if (!tenantId || !user) {
+    res.status(400).json({
+      error: 'Bad Request',
+      message: 'Tenant context is required for chat usage accounting',
+    });
+    return;
+  }
+
+  const usageCapsService = UsageCapsService.fromPool(pool);
+  const estimatedPromptTokens = estimateMessagesTokens(body.messages);
+  const estimatedCompletionTokens = Math.max(1, body.maxTokens ?? 1024);
+  const allowance = await usageCapsService.checkAllowance(
+    tenantId,
+    estimatedPromptTokens + estimatedCompletionTokens
+  );
+
+  if (!allowance.allowed) {
+    await logAudit(req.auditService, {
+      tenantId,
+      userId: user.userId,
+      action: 'CHAT_TOKEN_CAP_EXCEEDED',
+      resource: 'CHAT_STREAM',
+      changes: {
+        reasonCode: allowance.reasonCode,
+        dailyUsedTokens: allowance.dailyUsedTokens,
+        dailyCapTokens: allowance.dailyCapTokens,
+        monthlyUsedTokens: allowance.monthlyUsedTokens,
+        monthlyCapTokens: allowance.monthlyCapTokens,
+        estimatedRequestTokens: allowance.estimatedRequestTokens,
+      },
+      ipAddress: req.clientInfo?.ipAddress || 'unknown',
+      userAgent: req.clientInfo?.userAgent || 'unknown',
+      statusCode: 429,
+      errorMessage: allowance.reasonCode,
+    });
+    res.status(429).json({
+      error: 'Tenant token cap exceeded',
+      code: allowance.reasonCode,
+      dailyUsedTokens: allowance.dailyUsedTokens,
+      dailyCapTokens: allowance.dailyCapTokens,
+      monthlyUsedTokens: allowance.monthlyUsedTokens,
+      monthlyCapTokens: allowance.monthlyCapTokens,
+      retryAtUtc: allowance.retryAtUtc,
+    });
+    return;
+  }
+
   const streamId = randomUUID();
 
   // Set SSE headers
@@ -689,6 +746,8 @@ async function startNewStream(
   await storeStreamState(streamState);
 
   let assistantText = '';
+  let nativeUsage: { promptTokens: number; completionTokens: number; totalTokens: number } | null =
+    null;
 
   // Track client disconnect
   let aborted = false;
@@ -731,6 +790,11 @@ async function startNewStream(
       if (content) {
         assistantText += content;
         await addStreamChunk(streamId, content);
+      }
+
+      // Capture native usage when the provider includes it.
+      if (chunk.usage) {
+        nativeUsage = chunk.usage;
       }
 
       // Send chunk event
@@ -778,6 +842,21 @@ async function startNewStream(
         historyStreamId,
         conversation
       );
+
+      const completionTokens = nativeUsage?.completionTokens ?? estimateTextTokens(assistantText);
+      const promptTokens = nativeUsage?.promptTokens ?? estimatedPromptTokens;
+      const totalTokens = nativeUsage?.totalTokens ?? promptTokens + completionTokens;
+      await usageCapsService.recordUsage({
+        tenantId,
+        userId: user.userId,
+        routeSource: 'chat_sse',
+        provider: provider.name,
+        model: options.model,
+        promptTokens,
+        completionTokens,
+        totalTokens,
+        isEstimated: !nativeUsage,
+      });
     }
 
     // Clean up

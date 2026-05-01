@@ -151,6 +151,12 @@ interface OpenAIStreamChunk {
     };
     finish_reason: string | null;
   }>;
+  /** Present on the trailing usage chunk when stream_options.include_usage is true. */
+  usage?: {
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+  };
 }
 
 /**
@@ -413,6 +419,7 @@ export class OpenAIProvider implements AIProvider {
       presence_penalty: options?.presencePenalty,
       stop: options?.stop,
       stream: true,
+      stream_options: { include_usage: true },
     };
 
     let retries = 0;
@@ -470,6 +477,12 @@ export class OpenAIProvider implements AIProvider {
         const decoder = new TextDecoder();
         let buffer = '';
 
+        // Buffered finish reason — held until the trailing usage chunk arrives
+        // (emitted by OpenAI when stream_options.include_usage is true).
+        let pendingFinishReason: string | undefined;
+        let pendingChunkId: string | undefined;
+        let pendingChunkModel: string | undefined;
+
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
@@ -483,11 +496,62 @@ export class OpenAIProvider implements AIProvider {
             if (!trimmed || !trimmed.startsWith('data: ')) continue;
 
             const data = trimmed.slice(6);
-            if (data === '[DONE]') return;
+            if (data === '[DONE]') {
+              // Flush any buffered finish reason that arrived without a usage chunk.
+              if (pendingFinishReason) {
+                yield {
+                  id: pendingChunkId || '',
+                  delta: {},
+                  model: pendingChunkModel || model,
+                  finishReason: pendingFinishReason,
+                };
+              }
+              return;
+            }
 
             try {
               const chunk = JSON.parse(data) as OpenAIStreamChunk;
+
+              // Trailing usage-only chunk produced by stream_options.include_usage=true.
+              if (chunk.usage && (!chunk.choices || chunk.choices.length === 0)) {
+                yield {
+                  id: pendingChunkId || chunk.id,
+                  delta: {},
+                  model: pendingChunkModel || chunk.model,
+                  finishReason: pendingFinishReason,
+                  usage: {
+                    promptTokens: chunk.usage.prompt_tokens,
+                    completionTokens: chunk.usage.completion_tokens,
+                    totalTokens: chunk.usage.total_tokens,
+                  },
+                };
+                pendingFinishReason = undefined;
+                pendingChunkId = undefined;
+                pendingChunkModel = undefined;
+                continue;
+              }
+
               const choice = chunk.choices[0];
+
+              if (choice?.finish_reason) {
+                // Buffer the finish reason; wait for the usage chunk before yielding.
+                pendingFinishReason = choice.finish_reason;
+                pendingChunkId = chunk.id;
+                pendingChunkModel = chunk.model;
+                // Still emit any content carried in the same chunk.
+                const content = choice?.delta?.content;
+                if (content) {
+                  yield {
+                    id: chunk.id,
+                    delta: {
+                      role: choice?.delta?.role as ChatMessage['role'] | undefined,
+                      content,
+                    },
+                    model: chunk.model,
+                  };
+                }
+                continue;
+              }
 
               yield {
                 id: chunk.id,
@@ -496,7 +560,6 @@ export class OpenAIProvider implements AIProvider {
                   content: choice?.delta?.content,
                 },
                 model: chunk.model,
-                finishReason: choice?.finish_reason || undefined,
               };
             } catch {
               // Skip malformed JSON chunks

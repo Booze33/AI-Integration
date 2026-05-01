@@ -14,6 +14,11 @@ Auth levels used below:
 - `Viewer+`: authenticated with viewer/member/admin
 - `Admin/Owner`: authenticated with role `admin` or `owner`
 
+Tenant context rule for protected routes:
+
+- After authentication, tenant context is derived from JWT `tenantId`.
+- Caller-controlled tenant inputs (`x-tenant-id`, query `tenant_id`) are not accepted for protected routes.
+
 ## Health Endpoints
 
 | Method | Path               | Auth   | Request Body | Response Shape                                                                                                                                      |
@@ -78,6 +83,14 @@ Common auth errors:
 | GET    | `/api/tenant/providers`  | Authenticated | none                                                                                                            | `{ success: true, data: [{ name, displayName, requiresApiKey }] }` |
 
 `TenantConfigMasked` returns the encrypted key field masked as `api_key_encrypted: "********"`.
+
+## Tenant Usage Cap Endpoints (`/api/tenant/usage-caps`)
+
+| Method | Path                          | Auth        | Request Body                                                      | Response Shape                                                |
+| ------ | ----------------------------- | ----------- | ----------------------------------------------------------------- | ------------------------------------------------------------- |
+| GET    | `/api/tenant/usage-caps`      | Admin/Owner | none                                                              | `{ success: true, data: { caps, usage } }`                   |
+| PUT    | `/api/tenant/usage-caps`      | Admin/Owner | `{ dailyCapTokens?, monthlyCapTokens?, hardCapEnabled? }`        | `{ success: true, data: { caps, usage } }`                   |
+| GET    | `/api/tenant/usage-caps/usage`| Admin/Owner | none                                                              | `{ success: true, data: { tenantId, dailyUsedTokens, ... }}` |
 
 ## Pipeline Endpoints (`/api/pipeline`)
 

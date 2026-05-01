@@ -8,7 +8,7 @@
 import { Router } from 'express';
 import { Pool } from 'pg';
 import { body, param, validationResult } from 'express-validator';
-import { authenticate, requireRole, AuthenticatedRequest } from '../auth/middleware';
+import { authenticate, requireRole, requireTenant, AuthenticatedRequest } from '../auth/middleware';
 import { TenantAIConfigService } from './tenant-config';
 import { PostgreSQLTenantAIConfigRepository } from './postgres-repository';
 import { ProviderName } from './types';
@@ -39,7 +39,7 @@ export function setTenantConfigService(service: TenantAIConfigService): void {
 const router: Router = Router();
 
 // All routes require authentication
-router.use(authenticate);
+router.use(authenticate, requireTenant({ allowHeader: false, allowQuery: false }));
 
 // Get all active AI configurations for the current tenant
 router.get(

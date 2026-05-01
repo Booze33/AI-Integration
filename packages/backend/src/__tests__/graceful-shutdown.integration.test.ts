@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { spawn, ChildProcessWithoutNullStreams } from 'child_process';
+import { spawn, ChildProcessByStdio } from 'child_process';
 import path from 'path';
 import http from 'http';
+import { Readable } from 'stream';
 
 interface ChildHandle {
-  proc: ChildProcessWithoutNullStreams;
+  proc: ChildProcessByStdio<null, Readable, Readable>;
   stdout: string;
   stderr: string;
 }

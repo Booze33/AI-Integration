@@ -16,6 +16,7 @@ import { pipelineRoutes } from './pipeline';
 import { webhookRoutes } from './webhook';
 import { tenantConfigRoutes, setTenantConfigPool } from './providers/routes';
 import { createDashboardRoutes } from './dashboard/routes';
+import { createUsageCapsRoutes } from './usage-caps';
 import { createRateLimiter } from './rate-limit';
 import { requestLogger } from './logger';
 import { notFoundHandler, errorHandler } from './errors';
@@ -275,6 +276,7 @@ async function startServer() {
     app.use('/auth', authRoutes);
     app.use('/api', createChatRoutes(sharedPool));
     app.use('/api/tenant', tenantConfigRoutes);
+    app.use('/api/tenant/usage-caps', createUsageCapsRoutes(sharedPool));
     app.use('/api/dashboard', createDashboardRoutes(sharedPool));
     app.use(
       '/api/diagnostics',

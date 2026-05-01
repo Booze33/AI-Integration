@@ -4,6 +4,8 @@ import { WebSocketServer, WebSocket } from 'ws';
 import type { Server } from 'http';
 import { Pool } from 'pg';
 import { getProvider, ChatMessage, ChatOptions } from '../providers';
+import { UsageCapsService, estimateMessagesTokens, estimateTextTokens } from '../usage-caps';
+import { AuditService, logAudit } from '../audit';
 import { verifyToken, TokenPayload } from '../auth/jwt';
 import { insertChatHistory, isValidUUID } from './index';
 
@@ -92,6 +94,8 @@ function closeWithError(socket: WebSocket, message: string): void {
 
 export function registerChatWebSocket(server: Server, pool: Pool): void {
   const wss = new WebSocketServer({ noServer: true });
+  const usageCapsService = UsageCapsService.fromPool(pool);
+  const auditService = new AuditService(pool);
 
   server.on('upgrade', (req, socket, head) => {
     if (!req.url || !req.url.startsWith('/ws/chat')) {
@@ -153,11 +157,60 @@ export function registerChatWebSocket(server: Server, pool: Pool): void {
 
         const authUser = authenticateSocketRequest(req);
         const messages = payload.messages;
+        const tenantId = authUser.tenantId;
 
         if (!Array.isArray(messages) || messages.length === 0 || !messages.every(isChatMessage)) {
           send(socket, {
             type: 'error',
             message: 'messages array is required and must contain valid chat messages',
+          });
+          return;
+        }
+
+        if (!tenantId) {
+          send(socket, {
+            type: 'error',
+            message: 'Tenant context is required for chat usage accounting',
+            code: 'MISSING_TENANT_ID',
+          });
+          return;
+        }
+
+        const estimatedPromptTokens = estimateMessagesTokens(messages);
+        const estimatedCompletionTokens = Math.max(1, payload.options?.maxTokens ?? 1024);
+        const allowance = await usageCapsService.checkAllowance(
+          tenantId,
+          estimatedPromptTokens + estimatedCompletionTokens
+        );
+
+        if (!allowance.allowed) {
+          await logAudit(auditService, {
+            tenantId,
+            userId: authUser.userId,
+            action: 'CHAT_TOKEN_CAP_EXCEEDED',
+            resource: 'CHAT_STREAM',
+            changes: {
+              reasonCode: allowance.reasonCode,
+              dailyUsedTokens: allowance.dailyUsedTokens,
+              dailyCapTokens: allowance.dailyCapTokens,
+              monthlyUsedTokens: allowance.monthlyUsedTokens,
+              monthlyCapTokens: allowance.monthlyCapTokens,
+              estimatedRequestTokens: allowance.estimatedRequestTokens,
+            },
+            ipAddress: 'websocket',
+            userAgent: (req.headers['user-agent'] as string) || 'unknown',
+            statusCode: 429,
+            errorMessage: allowance.reasonCode,
+          });
+          send(socket, {
+            type: 'error',
+            message: 'Tenant token cap exceeded',
+            code: allowance.reasonCode,
+            dailyUsedTokens: allowance.dailyUsedTokens,
+            dailyCapTokens: allowance.dailyCapTokens,
+            monthlyUsedTokens: allowance.monthlyUsedTokens,
+            monthlyCapTokens: allowance.monthlyCapTokens,
+            retryAtUtc: allowance.retryAtUtc,
           });
           return;
         }
@@ -186,6 +239,11 @@ export function registerChatWebSocket(server: Server, pool: Pool): void {
           let assistantText = '';
           let chunkIndex = 0;
           let streamFinished = false;
+          let nativeUsage: {
+            promptTokens: number;
+            completionTokens: number;
+            totalTokens: number;
+          } | null = null;
           const iterator = provider.chatStream(messages, options);
 
           for await (const chunk of iterator) {
@@ -202,6 +260,10 @@ export function registerChatWebSocket(server: Server, pool: Pool): void {
                 index: chunkIndex,
               });
               chunkIndex += 1;
+            }
+
+            if (chunk.usage) {
+              nativeUsage = chunk.usage;
             }
 
             if (chunk.finishReason) {
@@ -236,6 +298,21 @@ export function registerChatWebSocket(server: Server, pool: Pool): void {
               conversation
             );
           }
+
+          const completionTokens = nativeUsage?.completionTokens ?? estimateTextTokens(assistantText);
+          const promptTokens = nativeUsage?.promptTokens ?? estimatedPromptTokens;
+          const totalTokens = nativeUsage?.totalTokens ?? promptTokens + completionTokens;
+          await usageCapsService.recordUsage({
+            tenantId,
+            userId: authUser.userId,
+            routeSource: 'chat_websocket',
+            provider: provider.name,
+            model: options.model,
+            promptTokens,
+            completionTokens,
+            totalTokens,
+            isEstimated: !nativeUsage,
+          });
         } catch (error) {
           send(socket, {
             type: 'error',

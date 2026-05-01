@@ -405,7 +405,7 @@ describe('Auth Integration Tests', () => {
       expect(response.body.message).toContain('Tenant ID required');
     });
 
-    it('should allow tenant from header when JWT has no tenantId', async () => {
+    it('should reject tenant from header when JWT has no tenantId', async () => {
       // Create token without tenantId
       const payload: TokenPayload = {
         userId: 'user-123',
@@ -426,8 +426,9 @@ describe('Auth Integration Tests', () => {
         .set('Authorization', `Bearer ${token}`)
         .set('x-tenant-id', 'tenant-from-header');
 
-      expect(response.status).toBe(200);
-      expect(response.body.tenantId).toBe('tenant-from-header');
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe('Bad Request');
+      expect(response.body.message).toContain('Tenant ID required in JWT token');
     });
 
     it('should reject combined middleware without tenant', async () => {
@@ -494,7 +495,7 @@ describe('Auth Integration Tests', () => {
         .set('Authorization', 'InvalidFormat token123');
 
       expect(response.status).toBe(401);
-      expect(response.body.message).toContain('Invalid authorization header format');
+      expect(response.body.message).toContain('Authentication required');
     });
 
     it('should reject empty authorization header', async () => {

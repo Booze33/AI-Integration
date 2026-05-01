@@ -299,7 +299,7 @@ export function hasMinRole(user: TokenPayload | undefined, minimumRole: Role): b
  * @param options - Configuration options
  */
 export function requireTenant(options?: { allowHeader?: boolean; allowQuery?: boolean }) {
-  const { allowHeader = true, allowQuery = false } = options || {};
+  const { allowHeader = false, allowQuery = false } = options || {};
 
   return (req: AuthenticatedRequest, res: Response, next: NextFunction): void => {
     if (!req.user) {
@@ -310,7 +310,7 @@ export function requireTenant(options?: { allowHeader?: boolean; allowQuery?: bo
       return;
     }
 
-    // Try to get tenant_id from JWT token first
+    // Tenant context must come from the authenticated JWT after auth.
     let tenantId = req.user.tenantId;
 
     // Fallback to header if allowed
@@ -326,7 +326,7 @@ export function requireTenant(options?: { allowHeader?: boolean; allowQuery?: bo
     if (!tenantId) {
       res.status(400).json({
         error: 'Bad Request',
-        message: 'Tenant ID required. Provide via JWT token or x-tenant-id header',
+        message: 'Tenant ID required in JWT token',
       });
       return;
     }
@@ -354,16 +354,6 @@ export function optionalTenant(
 
   // Try to get tenant_id from JWT token
   let tenantId = req.user.tenantId;
-
-  // Fallback to header
-  if (!tenantId) {
-    tenantId = req.headers['x-tenant-id'] as string | undefined;
-  }
-
-  // Fallback to query parameter
-  if (!tenantId) {
-    tenantId = req.query.tenant_id as string | undefined;
-  }
 
   // Inject if found (but don't require)
   if (tenantId) {

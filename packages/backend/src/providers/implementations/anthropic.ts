@@ -487,6 +487,9 @@ export class AnthropicProvider implements AIProvider {
 
     let retries = 0;
     let messageId = '';
+    let inputTokens = 0;
+    let outputTokens = 0;
+    let finalStopReason: string | null = null;
 
     while (retries <= this.retryConfig.maxRetries) {
       try {
@@ -578,6 +581,7 @@ export class AnthropicProvider implements AIProvider {
               switch (event.type) {
                 case 'message_start':
                   messageId = event.message.id;
+                  inputTokens = event.message.usage.input_tokens;
                   break;
 
                 case 'content_block_delta':
@@ -594,10 +598,22 @@ export class AnthropicProvider implements AIProvider {
                   break;
 
                 case 'message_delta':
-                  // Stop reason is captured but finish reason is determined at message_stop
+                  outputTokens = event.usage.output_tokens;
+                  finalStopReason = event.delta.stop_reason;
                   break;
 
                 case 'message_stop':
+                  yield {
+                    id: messageId,
+                    delta: {},
+                    model,
+                    finishReason: this.mapStopReason(finalStopReason),
+                    usage: {
+                      promptTokens: inputTokens,
+                      completionTokens: outputTokens,
+                      totalTokens: inputTokens + outputTokens,
+                    },
+                  };
                   return;
 
                 case 'error':
