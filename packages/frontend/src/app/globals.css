@@ -1,0 +1,72 @@
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+html,
+body {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+
+
+@media (prefers-color-scheme: dark) {
+  html {
+    color-scheme: dark;
+  }
+}
+
+@property --count-value {
+  syntax: "<integer>";
+  inherits: false;
+  initial-value: 0;
+}
+
+.stat-count-up {
+  --count-value: 0;
+  counter-reset: stat var(--count-value);
+  animation: stat-count-up 1.2s steps(40, end) forwards;
+  font-variant-numeric: tabular-nums;
+}
+
+.stat-count-up::after {
+  content: counter(stat);
+}
+
+@keyframes stat-count-up {
+  to {
+    --count-value: var(--count-target, 0);
+  }
+}
+
+.skeleton-shimmer {
+  position: relative;
+  overflow: hidden;
+  background-color: #e2e8f0;
+}
+
+.skeleton-shimmer::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.7) 50%, transparent 100%);
+  animation: skeleton-shimmer 1.2s ease-in-out infinite;
+}
+
+@keyframes skeleton-shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+

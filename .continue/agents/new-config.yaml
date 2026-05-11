@@ -1,0 +1,9 @@
+name: Local Config
+version: 1.0.0
+schema: v1
+models:
+  - name: DeepSeek Coder
+    provider: deepseek
+    model: deepseek-coder
+    apiKey: sk-def0206fca464fb1af1b3632a6f78ec0
+    roles: [chat, edit]

@@ -2,6 +2,7 @@
   "name": "ai-initializer",
   "version": "1.0.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev:backend": "pnpm --filter backend dev",
     "dev:frontend": "pnpm --filter frontend dev",
@@ -30,7 +31,7 @@
   },
   "lint-staged": {
     "*.{ts,tsx}": [
-      "eslint --fix",
+      "eslint --fix --max-warnings=-1",
       "prettier --write"
     ],
     "*.{json,md}": [

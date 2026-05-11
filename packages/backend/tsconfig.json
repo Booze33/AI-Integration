@@ -2,10 +2,12 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "dist",
-    "rootDir": "src",
     "baseUrl": ".",
+    "module": "NodeNext",
+    "moduleResolution": "nodenext",
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["src/*"],
+      "@ai-integration/types": ["../types/src"]
     }
   },
   "include": ["src"]

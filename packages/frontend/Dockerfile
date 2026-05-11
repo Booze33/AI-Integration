@@ -1,52 +1,28 @@
-FROM node:20-alpine AS base
+FROM node:20-alpine
 
 # Install pnpm
-RUN npm install -g pnpm
+RUN npm install -g pnpm@10.33.0
 
-# Set working directory
+# Create app directory and set permissions
 WORKDIR /app
-
-# Copy package files
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
-COPY packages/frontend/package.json ./packages/frontend/
-
-# Install dependencies
-RUN pnpm install --frozen-lockfile
-
-# Copy source code
-COPY packages/frontend/ ./packages/frontend/
-
-# Build stage
-FROM base AS builder
-WORKDIR /app
-# Install all dependencies including devDependencies for build
-RUN pnpm install --frozen-lockfile
-RUN pnpm --filter frontend build
-
-# Production stage
-FROM node:20-alpine AS production
-WORKDIR /app
-
-# Install pnpm
-RUN npm install -g pnpm
 
 # Copy package files
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY packages/frontend/package.json ./packages/frontend/
+COPY packages/types/package.json ./packages/types/
 
-# Install production dependencies only (skip prepare script)
-RUN pnpm install --frozen-lockfile --prod --ignore-scripts
+# Install dependencies as root first
+RUN pnpm install --frozen-lockfile
 
-# Copy built application
-COPY --from=builder /app/packages/frontend/.next ./packages/frontend/.next
-COPY --from=builder /app/packages/frontend/public ./packages/frontend/public
+# Create non-root user after installation
+RUN addgroup -g 1001 nodejs && adduser -D -u 1001 -H -s /sbin/nologin -G nodejs -g nodejs nodejs
 
-# Expose port
+# Change ownership of app directory
+RUN chown -R nodejs:nodejs /app
+
+# Switch to non-root user
+USER nodejs
+
 EXPOSE 3000
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-  CMD wget --no-verbose --tries=1 --spider http://localhost:3000 || exit 1
-
-# Run the application
-CMD ["pnpm", "--filter", "frontend", "start"]
+CMD ["pnpm", "--filter", "frontend", "dev"]
