@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { apiFetch } from '../lib/api/client';
 import { clearAuthState, setAuthUser } from '../lib/auth-store';
-import { appConfig } from '../lib/config';
+import { appConfig, appConfigValidation } from '../lib/config';
 
 const AUTH_CHECK_TIMEOUT_MS = 3000;
 
@@ -61,6 +61,27 @@ export function AuthBootstrap({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     void runAuthCheck();
   }, [runAuthCheck]);
+
+  if (!appConfigValidation.isValid) {
+    return (
+      <main className="min-h-screen bg-linear-to-br from-amber-50 via-white to-red-50 px-4">
+        <div className="mx-auto flex min-h-screen max-w-2xl flex-col items-center justify-center text-center">
+          <div className="rounded-2xl border border-amber-200 bg-white p-8 shadow-sm">
+            <h1 className="text-2xl font-bold text-slate-900">Configuration error</h1>
+            <p className="mt-2 text-sm text-slate-700">
+              This deployment is missing required frontend environment variables.
+            </p>
+            <p className="mt-3 rounded-md bg-amber-100 px-3 py-2 font-mono text-xs text-amber-900">
+              {appConfigValidation.errorMessage}
+            </p>
+            <p className="mt-3 text-xs text-slate-600">
+              Add these variables in your Vercel Project Settings, then redeploy.
+            </p>
+          </div>
+        </div>
+      </main>
+    );
+  }
 
   if (status === 'checking') {
     return (

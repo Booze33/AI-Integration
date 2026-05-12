@@ -3,6 +3,8 @@
   "outputDirectory": ".next",
   "framework": "nextjs",
   "env": {
-    "NODE_ENV": "production"
+    "NODE_ENV": "production",
+    "NEXT_PUBLIC_API_URL": "https://ai-integration-backend.fly.dev",
+    "NEXT_PUBLIC_DEFAULT_TENANT_ID": "default-tenant"
   }
 }
