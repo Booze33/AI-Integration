@@ -1,5 +1,4 @@
 import { createClient, RedisClientType } from 'redis';
-import { resolveRedisConfigFromEnv } from './config';
 
 let redisClient: RedisClientType | null = null;
 let connectionAttempts = 0;
@@ -15,13 +14,11 @@ export async function getRedisClient(): Promise<RedisClientType> {
     return redisClient;
   }
 
-  const { host, port, password } = resolveRedisConfigFromEnv();
+  const redisUrl = process.env.REDIS_URL ?? 'redis://localhost:6379';
 
   redisClient = createClient({
-    password,
+    url: redisUrl,
     socket: {
-      host,
-      port,
       reconnectStrategy: (retries: number) => {
         if (retries > 10) {
           console.error('Redis: Max reconnection attempts reached');
@@ -29,8 +26,9 @@ export async function getRedisClient(): Promise<RedisClientType> {
         }
         return Math.min(retries * 100, 3000);
       },
+      tls: redisUrl.startsWith('rediss://') ? true : undefined,
     },
-  });
+  }) as RedisClientType;
 
   redisClient.on('error', (err: Error) => {
     redisConnectionState = 'error';

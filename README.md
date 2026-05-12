@@ -69,6 +69,13 @@ This is a fit if you want to launch faster with a solid base and you are comfort
 
 It is not a fit if you want a no-code product builder or a fully managed SaaS where someone else runs everything.
 
+## System Architecture Diagram
+
+![AI Integration Boilerplate system architecture](docs/system-architecture.svg)
+
+- Editable source: [docs/system-architecture.mmd](docs/system-architecture.mmd)
+- Dedicated image file: [docs/system-architecture.svg](docs/system-architecture.svg)
+
 ## Quick Start Commands
 
 ```bash

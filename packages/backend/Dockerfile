@@ -14,6 +14,16 @@ COPY packages/types/package.json ./packages/types/
 # Install dependencies as root first
 RUN pnpm install --frozen-lockfile
 
+# Copy source code and tsconfig files
+COPY tsconfig.base.json ./
+COPY packages/backend/tsconfig.json ./packages/backend/
+COPY packages/types/tsconfig.json ./packages/types/
+COPY packages/backend/src ./packages/backend/src
+COPY packages/types/src ./packages/types/src
+
+# Build
+RUN pnpm --filter backend build
+
 # Create non-root user after installation
 RUN addgroup -g 1001 nodejs && adduser -D -u 1001 -H -s /sbin/nologin -G nodejs -g nodejs nodejs
 
@@ -25,4 +35,4 @@ USER nodejs
 
 EXPOSE 3001
 
-CMD ["pnpm", "--filter", "backend", "dev"]
+CMD ["node", "packages/backend/dist/src/index.js"]

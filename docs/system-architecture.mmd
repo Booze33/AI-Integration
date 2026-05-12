@@ -1,0 +1,19 @@
+flowchart LR
+    U[End Users] --> FE[Next.js Frontend\npackages/frontend]
+    FE --> BE[Node.js Backend API\npackages/backend]
+
+    BE --> AUTH[Auth and Tenant Boundaries]
+    BE --> CHAT[Chat and Streaming Pipeline]
+    BE --> UPLOAD[File Upload and Extraction]
+    BE --> ADMIN[Admin and Diagnostics]
+
+    CHAT --> AI[AI Provider Abstraction\nOpenAI, Anthropic, Deepgram, ElevenLabs]
+
+    BE --> PG[(PostgreSQL)]
+    BE --> REDIS[(Redis)]
+
+    DEV[Local Infra\nDocker Compose] --> PG
+    DEV --> REDIS
+
+    CI[Deployment Target\nVercel or Container Runtime] --> FE
+    CI --> BE

@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 760" role="img" aria-labelledby="title desc">
+  <title id="title">AI Integration Boilerplate System Architecture</title>
+  <desc id="desc">System architecture showing users, frontend, backend modules, AI providers, PostgreSQL, Redis, and deployment/runtime context.</desc>
+  <defs>
+    <style>
+      .bg { fill: #f6f8fb; }
+      .group { fill: #ffffff; stroke: #c9d2e3; stroke-width: 2; rx: 14; }
+      .box { fill: #ffffff; stroke: #60739a; stroke-width: 2; rx: 10; }
+      .store { fill: #eef4ff; stroke: #3d5a98; stroke-width: 2; rx: 10; }
+      .ext { fill: #fff7ea; stroke: #a86c00; stroke-width: 2; rx: 10; }
+      .title { font: 700 28px Segoe UI, Arial, sans-serif; fill: #1f2a44; }
+      .subtitle { font: 500 15px Segoe UI, Arial, sans-serif; fill: #4a5d82; }
+      .label { font: 600 15px Segoe UI, Arial, sans-serif; fill: #1f2a44; }
+      .small { font: 500 13px Segoe UI, Arial, sans-serif; fill: #2d3f62; }
+      .arrow { stroke: #3f5687; stroke-width: 2.4; fill: none; marker-end: url(#arrowhead); }
+      .arrow2 { stroke: #8a5c00; stroke-width: 2.2; fill: none; marker-end: url(#arrowhead2); }
+    </style>
+    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#3f5687" />
+    </marker>
+    <marker id="arrowhead2" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#8a5c00" />
+    </marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1200" height="760" />
+  <text class="title" x="40" y="54">AI Integration Boilerplate - System Architecture</text>
+  <text class="subtitle" x="40" y="80">Dedicated architecture diagram for docs and onboarding</text>
+
+  <rect class="group" x="40" y="120" width="1120" height="570" />
+
+  <rect class="box" x="80" y="190" width="180" height="68" />
+  <text class="label" x="120" y="230">End Users</text>
+
+  <rect class="box" x="320" y="180" width="240" height="88" />
+  <text class="label" x="355" y="215">Next.js Frontend</text>
+  <text class="small" x="350" y="238">packages/frontend</text>
+
+  <rect class="box" x="640" y="170" width="270" height="108" />
+  <text class="label" x="688" y="206">Backend API</text>
+  <text class="small" x="682" y="230">Auth, Chat, Upload, Admin</text>
+  <text class="small" x="692" y="252">packages/backend</text>
+
+  <rect class="ext" x="980" y="165" width="150" height="118" />
+  <text class="label" x="1010" y="198">AI Providers</text>
+  <text class="small" x="998" y="222">OpenAI</text>
+  <text class="small" x="998" y="240">Anthropic</text>
+  <text class="small" x="998" y="258">Deepgram / ElevenLabs</text>
+
+  <rect class="store" x="655" y="355" width="230" height="82" />
+  <text class="label" x="708" y="389">PostgreSQL</text>
+  <text class="small" x="690" y="412">tenants, auth, app data</text>
+
+  <rect class="store" x="655" y="470" width="230" height="82" />
+  <text class="label" x="735" y="504">Redis</text>
+  <text class="small" x="685" y="527">stream state, caching, queues</text>
+
+  <rect class="box" x="320" y="360" width="240" height="95" />
+  <text class="label" x="360" y="394">Local Infrastructure</text>
+  <text class="small" x="370" y="418">docker-compose</text>
+  <text class="small" x="362" y="439">Postgres + Redis services</text>
+
+  <rect class="box" x="320" y="500" width="240" height="95" />
+  <text class="label" x="362" y="534">Deployment Targets</text>
+  <text class="small" x="365" y="558">Vercel / containers</text>
+  <text class="small" x="376" y="579">frontend + backend</text>
+
+  <path class="arrow" d="M260 224 L320 224" />
+  <path class="arrow" d="M560 224 L640 224" />
+  <path class="arrow2" d="M910 224 L980 224" />
+
+  <path class="arrow" d="M775 278 L775 355" />
+  <path class="arrow" d="M775 278 L775 470" />
+
+  <path class="arrow" d="M560 405 L655 395" />
+  <path class="arrow" d="M560 410 L655 505" />
+
+  <path class="arrow" d="M560 548 L640 245" />
+</svg>

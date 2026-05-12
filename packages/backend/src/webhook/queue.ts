@@ -10,6 +10,7 @@
  */
 
 import { Queue } from 'bullmq';
+import { resolveRedisConfigFromEnv } from '../redis/config';
 import { WebhookJobData, WebhookJobResult } from './types';
 
 export const WEBHOOK_QUEUE_NAME = 'webhook-events';
@@ -19,11 +20,7 @@ export const WEBHOOK_QUEUE_NAME = 'webhook-events';
 // ---------------------------------------------------------------------------
 
 function redisConnection() {
-  return {
-    host: process.env.REDIS_HOST || 'localhost',
-    port: parseInt(process.env.REDIS_PORT || '6379', 10),
-    password: process.env.REDIS_PASSWORD || undefined,
-  };
+  return resolveRedisConfigFromEnv();
 }
 
 // ---------------------------------------------------------------------------

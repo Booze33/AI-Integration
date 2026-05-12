@@ -3,8 +3,11 @@
   "compilerOptions": {
     "outDir": "dist",
     "baseUrl": ".",
+    "declaration": false,
+    "declarationMap": false,
     "module": "NodeNext",
     "moduleResolution": "nodenext",
+    "sourceMap": false,
     "paths": {
       "@/*": ["src/*"],
       "@ai-integration/types": ["../types/src"]

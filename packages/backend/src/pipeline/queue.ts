@@ -24,6 +24,7 @@ interface QueueConfig {
     host: string;
     port: number;
     password?: string;
+    tls?: object;
   };
   defaultJobOptions: {
     attempts: number;
