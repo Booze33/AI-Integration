@@ -21,6 +21,7 @@ interface MeResponse {
 
 export function AuthBootstrap({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = useState<BootstrapStatus>('checking');
+  const [hasHydrated, setHasHydrated] = useState(false);
 
   const runAuthCheck = useCallback(async () => {
     setStatus('checking');
@@ -59,10 +60,18 @@ export function AuthBootstrap({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    void runAuthCheck();
-  }, [runAuthCheck]);
+    setHasHydrated(true);
+  }, []);
 
-  if (!appConfigValidation.isValid) {
+  useEffect(() => {
+    if (!hasHydrated || !appConfigValidation.isValid) {
+      return;
+    }
+
+    void runAuthCheck();
+  }, [hasHydrated, runAuthCheck]);
+
+  if (hasHydrated && !appConfigValidation.isValid) {
     return (
       <main className="min-h-screen bg-linear-to-br from-amber-50 via-white to-red-50 px-4">
         <div className="mx-auto flex min-h-screen max-w-2xl flex-col items-center justify-center text-center">

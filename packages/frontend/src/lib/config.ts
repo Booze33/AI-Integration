@@ -2,8 +2,19 @@ import { DEFAULT_API_BASE_URL } from './constants';
 
 const isProduction = process.env.NODE_ENV === 'production';
 type RequiredEnvKey = 'NEXT_PUBLIC_API_URL' | 'NEXT_PUBLIC_DEFAULT_TENANT_ID';
+type OptionalEnvKey = 'NEXT_PUBLIC_APP_NAME' | 'NEXT_PUBLIC_MOCK_MODE';
 
 const missingRequiredEnvKeys = new Set<RequiredEnvKey>();
+
+const requiredEnvValues: Record<RequiredEnvKey, string | undefined> = {
+  NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL,
+  NEXT_PUBLIC_DEFAULT_TENANT_ID: process.env.NEXT_PUBLIC_DEFAULT_TENANT_ID,
+};
+
+const optionalEnvValues: Record<OptionalEnvKey, string | undefined> = {
+  NEXT_PUBLIC_APP_NAME: process.env.NEXT_PUBLIC_APP_NAME,
+  NEXT_PUBLIC_MOCK_MODE: process.env.NEXT_PUBLIC_MOCK_MODE,
+};
 
 const devFallbacks: Record<RequiredEnvKey, string> = {
   NEXT_PUBLIC_API_URL: DEFAULT_API_BASE_URL,
@@ -11,7 +22,7 @@ const devFallbacks: Record<RequiredEnvKey, string> = {
 };
 
 const readRequired = (key: RequiredEnvKey): string => {
-  const value = process.env[key]?.trim();
+  const value = requiredEnvValues[key]?.trim();
   if (value) {
     return value;
   }
@@ -27,8 +38,8 @@ const readRequired = (key: RequiredEnvKey): string => {
   return fallback;
 };
 
-const readOptional = (key: string): string | undefined => {
-  const value = process.env[key];
+const readOptional = (key: OptionalEnvKey): string | undefined => {
+  const value = optionalEnvValues[key];
   return value && value.trim() ? value.trim() : undefined;
 };
 
