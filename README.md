@@ -96,6 +96,12 @@ Copy-Item packages/backend/.env.example packages/backend/.env
 Copy-Item packages/frontend/.env.example packages/frontend/.env.local
 ```
 
+## Setup Documentation
+
+For full production implementation setup docs (local, Docker, manual, provider configuration, deployment, streaming, queues, security, and architecture), see:
+
+- [docs/Setup-Production.md](docs/Setup-Production.md)
+
 ---
 
 If your goal is to get from idea to working AI product in days, this gives you a serious head start.
