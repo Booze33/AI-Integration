@@ -370,7 +370,7 @@ export class ElevenLabsProvider implements AIProvider {
       message:
         'ElevenLabs does not provide a chat API. Use OpenAI or Anthropic for chat completions.',
       statusCode: 501,
-      errorCode: 'not_implemented',
+      errorCode: 'PROVIDER_CAPABILITY_UNSUPPORTED',
       isRetryable: false,
     });
   }
@@ -388,7 +388,7 @@ export class ElevenLabsProvider implements AIProvider {
       message:
         'ElevenLabs does not provide a chat API. Use OpenAI or Anthropic for chat completions.',
       statusCode: 501,
-      errorCode: 'not_implemented',
+      errorCode: 'PROVIDER_CAPABILITY_UNSUPPORTED',
       isRetryable: false,
     });
   }
@@ -405,7 +405,7 @@ export class ElevenLabsProvider implements AIProvider {
       message:
         'ElevenLabs does not provide a transcription API. Use OpenAI Whisper or Deepgram for transcription.',
       statusCode: 501,
-      errorCode: 'not_implemented',
+      errorCode: 'PROVIDER_CAPABILITY_UNSUPPORTED',
       isRetryable: false,
     });
   }
@@ -471,7 +471,7 @@ export class ElevenLabsProvider implements AIProvider {
       message:
         'ElevenLabs does not provide an embeddings API. Use OpenAI or another provider for embeddings.',
       statusCode: 501,
-      errorCode: 'not_implemented',
+      errorCode: 'PROVIDER_CAPABILITY_UNSUPPORTED',
       isRetryable: false,
     });
   }
@@ -485,7 +485,7 @@ export class ElevenLabsProvider implements AIProvider {
       message:
         'ElevenLabs does not provide an embeddings API. Use OpenAI or another provider for embeddings.',
       statusCode: 501,
-      errorCode: 'not_implemented',
+      errorCode: 'PROVIDER_CAPABILITY_UNSUPPORTED',
       isRetryable: false,
     });
   }

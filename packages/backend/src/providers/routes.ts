@@ -12,6 +12,7 @@ import { authenticate, requireRole, requireTenant, AuthenticatedRequest } from '
 import { TenantAIConfigService } from './tenant-config';
 import { PostgreSQLTenantAIConfigRepository } from './postgres-repository';
 import { ProviderName } from './types';
+import { listProviderDescriptors } from './capabilities';
 import { NextFunction, Request, Response } from 'express';
 import { logAudit, InputSanitizer } from '../audit';
 
@@ -414,18 +415,20 @@ router.delete(
 
 // Get available providers list
 router.get('/providers', async (req: Request, res: Response) => {
-  const providers = [
-    { name: 'openai', displayName: 'OpenAI', requiresApiKey: true },
-    { name: 'anthropic', displayName: 'Anthropic', requiresApiKey: true },
-    { name: 'deepgram', displayName: 'Deepgram', requiresApiKey: true },
-    { name: 'elevenlabs', displayName: 'ElevenLabs', requiresApiKey: true },
-    { name: 'azure-openai', displayName: 'Azure OpenAI', requiresApiKey: true },
-    { name: 'google', displayName: 'Google AI', requiresApiKey: true },
-    { name: 'mistral', displayName: 'Mistral AI', requiresApiKey: true },
-    { name: 'groq', displayName: 'Groq', requiresApiKey: true },
-    { name: 'ollama', displayName: 'Ollama', requiresApiKey: false },
-    { name: 'custom', displayName: 'Custom Provider', requiresApiKey: true },
-  ];
+  const providers = listProviderDescriptors();
+
+  res.json({
+    success: true,
+    data: providers,
+  });
+});
+
+// Get provider capability metadata only
+router.get('/providers/capabilities', async (_req: Request, res: Response) => {
+  const providers = listProviderDescriptors().map((provider) => ({
+    name: provider.name,
+    capabilities: provider.capabilities,
+  }));
 
   res.json({
     success: true,

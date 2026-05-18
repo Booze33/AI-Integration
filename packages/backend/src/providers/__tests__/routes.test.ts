@@ -494,24 +494,80 @@ describe('Tenant Config API Routes', () => {
       expect(openaiProvider).toBeDefined();
       expect(openaiProvider.displayName).toBe('OpenAI');
       expect(openaiProvider.requiresApiKey).toBe(true);
+      expect(openaiProvider.capabilities).toEqual(
+        expect.objectContaining({
+          chat: true,
+          chatStream: true,
+          transcribe: true,
+          speak: true,
+        })
+      );
     });
 
     it('returns the full list of supported providers', async () => {
       const response = await request(app).get('/api/tenant/providers').expect(200);
 
       expect(response.body.success).toBe(true);
-      expect(response.body.data).toEqual([
-        { name: 'openai', displayName: 'OpenAI', requiresApiKey: true },
-        { name: 'anthropic', displayName: 'Anthropic', requiresApiKey: true },
-        { name: 'deepgram', displayName: 'Deepgram', requiresApiKey: true },
-        { name: 'elevenlabs', displayName: 'ElevenLabs', requiresApiKey: true },
-        { name: 'azure-openai', displayName: 'Azure OpenAI', requiresApiKey: true },
-        { name: 'google', displayName: 'Google AI', requiresApiKey: true },
-        { name: 'mistral', displayName: 'Mistral AI', requiresApiKey: true },
-        { name: 'groq', displayName: 'Groq', requiresApiKey: true },
-        { name: 'ollama', displayName: 'Ollama', requiresApiKey: false },
-        { name: 'custom', displayName: 'Custom Provider', requiresApiKey: true },
+      expect(response.body.data).toHaveLength(10);
+      expect(response.body.data.map((provider: any) => provider.name)).toEqual([
+        'openai',
+        'anthropic',
+        'deepgram',
+        'elevenlabs',
+        'azure-openai',
+        'google',
+        'mistral',
+        'groq',
+        'ollama',
+        'custom',
       ]);
+
+      response.body.data.forEach((provider: any) => {
+        expect(provider).toEqual(
+          expect.objectContaining({
+            name: expect.any(String),
+            displayName: expect.any(String),
+            requiresApiKey: expect.any(Boolean),
+            capabilities: expect.objectContaining({
+              chat: expect.any(Boolean),
+              chatStream: expect.any(Boolean),
+              transcribe: expect.any(Boolean),
+              realtimeTranscribe: expect.any(Boolean),
+              speak: expect.any(Boolean),
+              embed: expect.any(Boolean),
+              embedBatch: expect.any(Boolean),
+            }),
+          })
+        );
+      });
+    });
+  });
+
+  describe('GET /api/tenant/providers/capabilities', () => {
+    it('returns provider capability metadata without provider config fields', async () => {
+      const response = await request(app).get('/api/tenant/providers/capabilities').expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(response.body.data).toHaveLength(10);
+
+      const anthropic = response.body.data.find((provider: any) => provider.name === 'anthropic');
+      expect(anthropic).toEqual({
+        name: 'anthropic',
+        capabilities: {
+          chat: true,
+          chatStream: true,
+          transcribe: false,
+          realtimeTranscribe: false,
+          speak: false,
+          embed: false,
+          embedBatch: false,
+        },
+      });
+
+      response.body.data.forEach((provider: any) => {
+        expect(provider.displayName).toBeUndefined();
+        expect(provider.requiresApiKey).toBeUndefined();
+      });
     });
   });
 

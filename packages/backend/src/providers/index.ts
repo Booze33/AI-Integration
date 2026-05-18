@@ -36,6 +36,8 @@ export type {
   EmbedResponse,
   EmbedBatchOptions,
   EmbedBatchResponse,
+  ProviderCapability,
+  ProviderCapabilities,
 } from './types';
 
 // Export factory functions
@@ -43,6 +45,7 @@ export {
   createProvider,
   createProviderFromEnv,
   getProvider,
+  getProviderForCapability,
   getProviderForTenant,
   createProviderForTenant,
   resetProvider,
@@ -50,8 +53,20 @@ export {
   getCachedProviderForTenant,
   registerProvider,
   getAvailableProviders,
+  getCapabilitiesForProvider,
+  getProvidersByCapability,
+  resolveProviderForCapability,
   validateProviderConfig,
+  ProviderCapabilityError,
 } from './factory';
+
+// Export provider capability metadata
+export {
+  PROVIDER_CATALOG,
+  getProviderCapabilities,
+  supportsCapability,
+  listProviderDescriptors,
+} from './capabilities';
 
 // Export tenant configuration utilities
 export {

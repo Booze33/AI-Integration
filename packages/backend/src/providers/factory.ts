@@ -8,6 +8,26 @@
 
 import { AIProvider, ProviderConfig, ProviderName } from './types';
 import { TenantAIConfig, TenantAIConfigService } from './tenant-config';
+import { getProviderCapabilities, supportsCapability } from './capabilities';
+import { ProviderCapability, ProviderCapabilities } from './types';
+
+export class ProviderCapabilityError extends Error {
+  readonly provider: ProviderName;
+  readonly capability: ProviderCapability;
+  readonly supportedProviders: ProviderName[];
+
+  constructor(
+    provider: ProviderName,
+    capability: ProviderCapability,
+    supportedProviders: ProviderName[]
+  ) {
+    super(`Provider "${provider}" does not support capability "${capability}"`);
+    this.name = 'ProviderCapabilityError';
+    this.provider = provider;
+    this.capability = capability;
+    this.supportedProviders = supportedProviders;
+  }
+}
 
 // Provider implementations will be imported here
 // import { OpenAIProvider } from './implementations/openai';
@@ -120,6 +140,20 @@ export function getProvider(): AIProvider {
 }
 
 /**
+ * Get active provider and assert it supports the required capability.
+ */
+export function getProviderForCapability(capability: ProviderCapability): AIProvider {
+  const provider = getProvider();
+  const providerName = provider.name as ProviderName;
+
+  if (supportsCapability(providerName, capability)) {
+    return provider;
+  }
+
+  throw new ProviderCapabilityError(providerName, capability, getProvidersByCapability(capability));
+}
+
+/**
  * Get a provider for a specific tenant
  * Uses tenant-specific configuration if available, otherwise falls back to global
  *
@@ -214,6 +248,47 @@ export function getCachedProviderForTenant(
  */
 export function getAvailableProviders(): ProviderName[] {
   return Array.from(providerRegistry.keys());
+}
+
+/**
+ * Get declared capability surface for a provider.
+ */
+export function getCapabilitiesForProvider(providerName: ProviderName): ProviderCapabilities {
+  return getProviderCapabilities(providerName);
+}
+
+/**
+ * Get registered providers that support a given capability.
+ */
+export function getProvidersByCapability(capability: ProviderCapability): ProviderName[] {
+  return getAvailableProviders().filter((providerName) =>
+    supportsCapability(providerName, capability)
+  );
+}
+
+/**
+ * Resolve a registered provider for a capability, optionally honoring a preferred provider.
+ */
+export function resolveProviderForCapability(
+  capability: ProviderCapability,
+  preferredProvider?: ProviderName
+): ProviderName {
+  const availableProviders = getAvailableProviders();
+
+  if (
+    preferredProvider &&
+    availableProviders.includes(preferredProvider) &&
+    supportsCapability(preferredProvider, capability)
+  ) {
+    return preferredProvider;
+  }
+
+  const fallback = getProvidersByCapability(capability)[0];
+  if (!fallback) {
+    throw new Error(`No registered provider supports capability: ${capability}`);
+  }
+
+  return fallback;
 }
 
 /**

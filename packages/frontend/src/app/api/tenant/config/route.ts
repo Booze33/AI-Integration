@@ -10,7 +10,7 @@ const MOCK_MODE = appConfig.mockMode;
 export async function GET(request: NextRequest) {
   try {
     const cookieHeader = request.headers.get('cookie') || '';
-    if (!cookieHeader && !MOCK_MODE) {
+    if (!cookieHeader) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 

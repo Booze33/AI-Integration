@@ -11,11 +11,21 @@
  */
 
 import express, { Router as ExpressRouter, Request, Response, NextFunction } from 'express';
-import { getProvider, ChatMessage, ChatOptions } from '../providers';
+import {
+  getProviderForCapability,
+  ProviderCapabilityError,
+  ChatMessage,
+  ChatOptions,
+} from '../providers';
 import type { AIProvider } from '../providers';
 import { randomUUID } from 'crypto';
 import { Pool } from 'pg';
-import { authenticate, requireViewer, requireTenant, AuthenticatedRequest } from '../auth/middleware';
+import {
+  authenticate,
+  requireViewer,
+  requireTenant,
+  AuthenticatedRequest,
+} from '../auth/middleware';
 import { logAudit } from '../audit';
 import { UsageCapsService, estimateMessagesTokens, estimateTextTokens } from '../usage-caps';
 import {
@@ -174,6 +184,32 @@ interface TranscriptionSessionContext {
   clients: Set<Response>;
   bufferedEvents: BufferedTranscriptionEvent[];
   closed: boolean;
+}
+
+interface CapabilityErrorLike {
+  name?: string;
+  provider: string;
+  capability: string;
+  supportedProviders: string[];
+  message: string;
+}
+
+function isProviderCapabilityErrorLike(error: unknown): error is CapabilityErrorLike {
+  if (error instanceof ProviderCapabilityError) {
+    return true;
+  }
+
+  if (!error || typeof error !== 'object') {
+    return false;
+  }
+
+  const candidate = error as Partial<CapabilityErrorLike>;
+  return (
+    candidate.name === 'ProviderCapabilityError' &&
+    typeof candidate.provider === 'string' &&
+    typeof candidate.capability === 'string' &&
+    Array.isArray(candidate.supportedProviders)
+  );
 }
 
 const transcriptionSessions = new Map<string, TranscriptionSessionContext>();
@@ -350,11 +386,14 @@ export function createChatRoutes(pool: Pool): ExpressRouter {
           return;
         }
 
-        const provider = getProvider();
+        const provider = getProviderForCapability('realtimeTranscribe');
         if (!provider.createRealtimeSession) {
           res.status(501).json({
-            error: 'Transcription not supported',
-            message: 'Real-time transcription is not available',
+            error: 'Provider capability not supported',
+            code: 'PROVIDER_CAPABILITY_UNSUPPORTED',
+            capability: 'realtimeTranscribe',
+            provider: provider.name,
+            message: 'Active provider does not implement real-time transcription sessions',
           });
           return;
         }
@@ -411,6 +450,17 @@ export function createChatRoutes(pool: Pool): ExpressRouter {
 
         res.status(201).json({ sessionId });
       } catch (error) {
+        if (isProviderCapabilityErrorLike(error)) {
+          res.status(501).json({
+            error: 'Provider capability not supported',
+            code: 'PROVIDER_CAPABILITY_UNSUPPORTED',
+            capability: error.capability,
+            provider: error.provider,
+            supportedProviders: error.supportedProviders,
+            message: error.message,
+          });
+          return;
+        }
         console.error('Transcription session create error:', error);
         next(error);
       }
@@ -766,7 +816,7 @@ async function startNewStream(
 
   try {
     // Get AI provider
-    const provider = getProvider();
+    const provider = getProviderForCapability('chatStream');
 
     // Send start event
     await sendSSE(
@@ -870,15 +920,20 @@ async function startNewStream(
 
     // Send error event
     if (!res.writableEnded) {
-      await sendSSE(
-        res,
-        'error',
-        JSON.stringify({
-          message: error instanceof Error ? error.message : 'Unknown error',
-          code: error instanceof Error ? error.name : 'UNKNOWN_ERROR',
-        }),
-        `${streamId}-error`
-      );
+      const errorPayload = isProviderCapabilityErrorLike(error)
+        ? {
+            message: error.message,
+            code: 'PROVIDER_CAPABILITY_UNSUPPORTED',
+            capability: error.capability,
+            provider: error.provider,
+            supportedProviders: error.supportedProviders,
+          }
+        : {
+            message: error instanceof Error ? error.message : 'Unknown error',
+            code: error instanceof Error ? error.name : 'UNKNOWN_ERROR',
+          };
+
+      await sendSSE(res, 'error', JSON.stringify(errorPayload), `${streamId}-error`);
     }
 
     // Clean up (stream is already marked as finished in Redis, keep for potential reconnect)

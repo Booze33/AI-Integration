@@ -63,6 +63,12 @@ Common auth errors:
 | GET    | `/api/chat/history`               | Viewer+ | none                                                                                                                                      | `{ sessions: ChatHistorySession[] }`                                                                |
 | POST   | `/api/chat/history`               | Viewer+ | `{ messages: ChatMessage[], streamId?: string }`                                                                                          | `{ success: true }`                                                                                 |
 
+Provider capability mismatch contract:
+
+- HTTP status: `501`
+- Error code: `PROVIDER_CAPABILITY_UNSUPPORTED`
+- Shape: `{ error, code, capability, provider, supportedProviders?, message }`
+
 `ChatMessage` accepted roles: `system`, `user`, `assistant`, `function`.
 
 ### WebSocket route
@@ -73,24 +79,35 @@ Common auth errors:
 
 ## Tenant Provider Config Endpoints (`/api/tenant`)
 
-| Method | Path                     | Auth          | Request Body                                                                                                    | Response Shape                                                     |
-| ------ | ------------------------ | ------------- | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| GET    | `/api/tenant/config`     | Admin/Owner   | none                                                                                                            | `{ success: true, data: TenantConfigMasked[] }`                    |
-| GET    | `/api/tenant/config/:id` | Admin/Owner   | none                                                                                                            | `{ success: true, data: TenantConfigMasked }`                      |
-| POST   | `/api/tenant/config`     | Admin/Owner   | `{ provider, api_key, base_url?, organization?, default_model?, default_voice_id?, timeout_ms?, max_retries? }` | `{ success: true, data: TenantConfigMasked }`                      |
-| PUT    | `/api/tenant/config/:id` | Admin/Owner   | same fields as create, all optional                                                                             | `{ success: true, data: TenantConfigMasked }`                      |
-| DELETE | `/api/tenant/config/:id` | Admin/Owner   | none                                                                                                            | `{ success: true, message }`                                       |
-| GET    | `/api/tenant/providers`  | Authenticated | none                                                                                                            | `{ success: true, data: [{ name, displayName, requiresApiKey }] }` |
+| Method | Path                                 | Auth          | Request Body                                                                                                    | Response Shape                                                                   |
+| ------ | ------------------------------------ | ------------- | --------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| GET    | `/api/tenant/config`                 | Admin/Owner   | none                                                                                                            | `{ success: true, data: TenantConfigMasked[] }`                                  |
+| GET    | `/api/tenant/config/:id`             | Admin/Owner   | none                                                                                                            | `{ success: true, data: TenantConfigMasked }`                                    |
+| POST   | `/api/tenant/config`                 | Admin/Owner   | `{ provider, api_key, base_url?, organization?, default_model?, default_voice_id?, timeout_ms?, max_retries? }` | `{ success: true, data: TenantConfigMasked }`                                    |
+| PUT    | `/api/tenant/config/:id`             | Admin/Owner   | same fields as create, all optional                                                                             | `{ success: true, data: TenantConfigMasked }`                                    |
+| DELETE | `/api/tenant/config/:id`             | Admin/Owner   | none                                                                                                            | `{ success: true, message }`                                                     |
+| GET    | `/api/tenant/providers`              | Authenticated | none                                                                                                            | `{ success: true, data: [{ name, displayName, requiresApiKey, capabilities }] }` |
+| GET    | `/api/tenant/providers/capabilities` | Authenticated | none                                                                                                            | `{ success: true, data: [{ name, capabilities }] }`                              |
 
 `TenantConfigMasked` returns the encrypted key field masked as `api_key_encrypted: "********"`.
 
+`capabilities` shape:
+
+- `chat`
+- `chatStream`
+- `transcribe`
+- `realtimeTranscribe`
+- `speak`
+- `embed`
+- `embedBatch`
+
 ## Tenant Usage Cap Endpoints (`/api/tenant/usage-caps`)
 
-| Method | Path                          | Auth        | Request Body                                                      | Response Shape                                                |
-| ------ | ----------------------------- | ----------- | ----------------------------------------------------------------- | ------------------------------------------------------------- |
-| GET    | `/api/tenant/usage-caps`      | Admin/Owner | none                                                              | `{ success: true, data: { caps, usage } }`                   |
-| PUT    | `/api/tenant/usage-caps`      | Admin/Owner | `{ dailyCapTokens?, monthlyCapTokens?, hardCapEnabled? }`        | `{ success: true, data: { caps, usage } }`                   |
-| GET    | `/api/tenant/usage-caps/usage`| Admin/Owner | none                                                              | `{ success: true, data: { tenantId, dailyUsedTokens, ... }}` |
+| Method | Path                           | Auth        | Request Body                                              | Response Shape                                               |
+| ------ | ------------------------------ | ----------- | --------------------------------------------------------- | ------------------------------------------------------------ |
+| GET    | `/api/tenant/usage-caps`       | Admin/Owner | none                                                      | `{ success: true, data: { caps, usage } }`                   |
+| PUT    | `/api/tenant/usage-caps`       | Admin/Owner | `{ dailyCapTokens?, monthlyCapTokens?, hardCapEnabled? }` | `{ success: true, data: { caps, usage } }`                   |
+| GET    | `/api/tenant/usage-caps/usage` | Admin/Owner | none                                                      | `{ success: true, data: { tenantId, dailyUsedTokens, ... }}` |
 
 ## Pipeline Endpoints (`/api/pipeline`)
 

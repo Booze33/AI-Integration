@@ -233,3 +233,18 @@ export interface ProviderFactoryConfig {
   provider: ProviderName;
   config: ProviderConfig;
 }
+
+/**
+ * Provider capability model used for capability-aware routing.
+ */
+export interface ProviderCapabilities {
+  chat: boolean;
+  chatStream: boolean;
+  transcribe: boolean;
+  realtimeTranscribe: boolean;
+  speak: boolean;
+  embed: boolean;
+  embedBatch: boolean;
+}
+
+export type ProviderCapability = keyof ProviderCapabilities;

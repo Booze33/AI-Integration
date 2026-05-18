@@ -3,10 +3,12 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { apiClient, User } from '../../../lib/api-client';
+import { appConfig } from '../../../lib/config';
 import { usePageTitle } from '../../../lib/usePageTitle';
 
 export default function GeneralSettingsPage() {
   usePageTitle('Settings - General | AI Integration Platform');
+  const profileEditingEnabled = appConfig.profileEditingEnabled;
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
@@ -67,7 +69,9 @@ export default function GeneralSettingsPage() {
         <div className="mb-6">
           <h2 className="text-xl font-semibold text-gray-900">Account Overview</h2>
           <p className="mt-1 text-sm text-gray-600">
-            Profile editing coming soon. This page is read-only in v1.
+            {profileEditingEnabled
+              ? 'Profile editing is enabled for this environment.'
+              : 'Profile editing is currently disabled in this environment.'}
           </p>
         </div>
 

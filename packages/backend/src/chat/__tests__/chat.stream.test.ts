@@ -81,6 +81,20 @@ const mockChatStream = vi.fn(async function* () {
 const mockGetProvider = vi.fn();
 vi.mock('../../providers', () => ({
   getProvider: (...args: any[]) => mockGetProvider(...args),
+  getProviderForCapability: (...args: any[]) => mockGetProvider(...args),
+  ProviderCapabilityError: class ProviderCapabilityError extends Error {
+    provider: string;
+    capability: string;
+    supportedProviders: string[];
+
+    constructor(provider: string, capability: string, supportedProviders: string[]) {
+      super(`Provider "${provider}" does not support capability "${capability}"`);
+      this.name = 'ProviderCapabilityError';
+      this.provider = provider;
+      this.capability = capability;
+      this.supportedProviders = supportedProviders;
+    }
+  },
 }));
 
 vi.mock('../../usage-caps', () => ({

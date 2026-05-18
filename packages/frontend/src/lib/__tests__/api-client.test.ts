@@ -11,6 +11,17 @@ import { ApiClient, ApiError } from '../api-client';
 const fetchMock = vi.fn();
 global.fetch = fetchMock;
 
+const createMockResponse = (overrides: Record<string, unknown> = {}) => ({
+  ok: true,
+  status: 200,
+  statusText: 'OK',
+  headers: {
+    get: vi.fn(() => null),
+  },
+  json: () => Promise.resolve({}),
+  ...overrides,
+});
+
 describe('ApiClient', () => {
   let client: ApiClient;
 
@@ -41,10 +52,11 @@ describe('ApiClient', () => {
         user: { id: '1', email: 'test@example.com', role: 'admin' },
       };
 
-      fetchMock.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve(mockResponse),
-      });
+      fetchMock.mockResolvedValueOnce(
+        createMockResponse({
+          json: () => Promise.resolve(mockResponse),
+        })
+      );
 
       const result = await client.login({
         email: 'test@example.com',
@@ -53,7 +65,7 @@ describe('ApiClient', () => {
 
       expect(result).toEqual(mockResponse);
       expect(fetchMock).toHaveBeenCalledWith(
-        'http://test-api.com/auth/login',
+        'http://test-api.com/api/auth/login',
         expect.objectContaining({
           method: 'POST',
           body: JSON.stringify({
@@ -65,15 +77,17 @@ describe('ApiClient', () => {
     });
 
     it('should handle login failure', async () => {
-      fetchMock.mockResolvedValueOnce({
-        ok: false,
-        status: 401,
-        json: () =>
-          Promise.resolve({
-            error: 'Unauthorized',
-            message: 'Invalid email or password',
-          }),
-      });
+      fetchMock.mockResolvedValueOnce(
+        createMockResponse({
+          ok: false,
+          status: 401,
+          json: () =>
+            Promise.resolve({
+              error: 'Unauthorized',
+              message: 'Invalid email or password',
+            }),
+        })
+      );
 
       await expect(
         client.login({
@@ -103,10 +117,11 @@ describe('ApiClient', () => {
         ],
       };
 
-      fetchMock.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve(mockResponse),
-      });
+      fetchMock.mockResolvedValueOnce(
+        createMockResponse({
+          json: () => Promise.resolve(mockResponse),
+        })
+      );
 
       const result = await client.getTenantConfigs();
 
@@ -131,10 +146,11 @@ describe('ApiClient', () => {
         },
       };
 
-      fetchMock.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve(mockResponse),
-      });
+      fetchMock.mockResolvedValueOnce(
+        createMockResponse({
+          json: () => Promise.resolve(mockResponse),
+        })
+      );
 
       const config = {
         provider: 'openai' as const,
@@ -165,10 +181,11 @@ describe('ApiClient', () => {
         },
       };
 
-      fetchMock.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve(mockResponse),
-      });
+      fetchMock.mockResolvedValueOnce(
+        createMockResponse({
+          json: () => Promise.resolve(mockResponse),
+        })
+      );
 
       const updates = {
         base_url: 'https://api.openai.com',
@@ -192,10 +209,11 @@ describe('ApiClient', () => {
         message: 'Configuration deactivated successfully',
       };
 
-      fetchMock.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve(mockResponse),
-      });
+      fetchMock.mockResolvedValueOnce(
+        createMockResponse({
+          json: () => Promise.resolve(mockResponse),
+        })
+      );
 
       const result = await client.deleteTenantConfig('1');
 
@@ -211,11 +229,13 @@ describe('ApiClient', () => {
 
   describe('Error Handling', () => {
     it('should throw ApiError on HTTP errors', async () => {
-      fetchMock.mockResolvedValueOnce({
-        ok: false,
-        status: 400,
-        json: () => Promise.resolve({ error: 'Bad Request' }),
-      });
+      fetchMock.mockResolvedValueOnce(
+        createMockResponse({
+          ok: false,
+          status: 400,
+          json: () => Promise.resolve({ error: 'Bad Request' }),
+        })
+      );
 
       await expect(client.getCurrentUser()).rejects.toThrow(ApiError);
     });
@@ -227,10 +247,11 @@ describe('ApiClient', () => {
     });
 
     it('should handle invalid JSON responses', async () => {
-      fetchMock.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.reject(new Error('Invalid JSON')),
-      });
+      fetchMock.mockResolvedValueOnce(
+        createMockResponse({
+          json: () => Promise.reject(new Error('Invalid JSON')),
+        })
+      );
 
       await expect(client.getCurrentUser()).rejects.toThrow(ApiError);
     });

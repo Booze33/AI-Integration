@@ -92,9 +92,7 @@ Frontend image is defined in [packages/frontend/Dockerfile](../packages/frontend
 Notes:
 
 - Backend Dockerfile builds TypeScript and starts `packages/backend/dist/src/index.js`
-- Frontend Dockerfile currently runs `pnpm --filter frontend dev` (development mode)
-
-For production VPS, prefer a frontend production command (`next build` + `next start`) and keep backend in `NODE_ENV=production`.
+- Frontend Dockerfile builds Next.js and starts with `pnpm --filter frontend start` in production mode (`NODE_ENV=production`)
 
 ### 1.4 Manual Setup (without Docker)
 

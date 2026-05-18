@@ -677,7 +677,7 @@ export class AnthropicProvider implements AIProvider {
       message:
         'Anthropic does not provide a transcription API. Use OpenAI Whisper or another provider for transcription.',
       statusCode: 501,
-      errorType: 'not_implemented',
+      errorType: 'PROVIDER_CAPABILITY_UNSUPPORTED',
       isRetryable: false,
     });
   }
@@ -691,7 +691,7 @@ export class AnthropicProvider implements AIProvider {
       message:
         'Anthropic does not provide a text-to-speech API. Use OpenAI TTS or another provider for speech synthesis.',
       statusCode: 501,
-      errorType: 'not_implemented',
+      errorType: 'PROVIDER_CAPABILITY_UNSUPPORTED',
       isRetryable: false,
     });
   }
@@ -705,7 +705,7 @@ export class AnthropicProvider implements AIProvider {
       message:
         'Anthropic does not provide an embeddings API. Use OpenAI or another provider for embeddings.',
       statusCode: 501,
-      errorType: 'not_implemented',
+      errorType: 'PROVIDER_CAPABILITY_UNSUPPORTED',
       isRetryable: false,
     });
   }
@@ -719,7 +719,7 @@ export class AnthropicProvider implements AIProvider {
       message:
         'Anthropic does not provide an embeddings API. Use OpenAI or another provider for embeddings.',
       statusCode: 501,
-      errorType: 'not_implemented',
+      errorType: 'PROVIDER_CAPABILITY_UNSUPPORTED',
       isRetryable: false,
     });
   }

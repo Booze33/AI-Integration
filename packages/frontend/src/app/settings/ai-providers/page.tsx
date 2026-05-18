@@ -11,6 +11,15 @@ interface Provider {
   name: string;
   displayName: string;
   requiresApiKey: boolean;
+  capabilities?: {
+    chat: boolean;
+    chatStream: boolean;
+    transcribe: boolean;
+    realtimeTranscribe: boolean;
+    speak: boolean;
+    embed: boolean;
+    embedBatch: boolean;
+  };
 }
 
 interface TenantConfig {
@@ -82,7 +91,31 @@ export default function SettingsPage() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const modalRef = useRef<HTMLDivElement | null>(null);
   const canManageProviders = user ? ['admin', 'owner'].includes(user.role) : false;
+  const selectedProvider = providers.find((provider) => provider.name === formData.provider);
+  //  const selectedProviderCapabilities = selectedProvider?.capabilities;
+  const selectedProviderRequiresApiKey = selectedProvider?.requiresApiKey ?? true;
   useFocusTrap(showAddForm, modalRef, () => setShowAddForm(false));
+
+  const capabilityLabels: Record<string, string> = {
+    chat: 'Chat',
+    chatStream: 'Streaming Chat',
+    transcribe: 'Transcription',
+    realtimeTranscribe: 'Realtime Transcription',
+    speak: 'Speech Synthesis',
+    embed: 'Embeddings',
+    embedBatch: 'Batch Embeddings',
+  };
+
+  const getCapabilityEntries = (provider?: Provider) =>
+    Object.entries(provider?.capabilities || {}).filter((entry): entry is [string, boolean] => {
+      const [enabled] = entry;
+      return typeof enabled === 'boolean';
+    });
+
+  const getEnabledCapabilities = (provider?: Provider) =>
+    getCapabilityEntries(provider)
+      .filter(([, enabled]) => enabled)
+      .map(([name]) => name);
 
   useEffect(() => {
     loadData();
@@ -196,8 +229,12 @@ export default function SettingsPage() {
       newErrors.provider = 'Provider is required';
     }
 
-    if (!formData.api_key) {
+    if (selectedProviderRequiresApiKey && !formData.api_key) {
       newErrors.api_key = 'API key is required';
+    }
+
+    if (selectedProvider && getEnabledCapabilities(selectedProvider).length === 0) {
+      newErrors.provider = 'Selected provider is not yet available for app actions';
     }
 
     setErrors(newErrors);
@@ -326,9 +363,7 @@ export default function SettingsPage() {
       setCapsSaving(true);
       setCapsError(null);
 
-      const parsedDaily = capsFormData.dailyCapTokens
-        ? Number(capsFormData.dailyCapTokens)
-        : null;
+      const parsedDaily = capsFormData.dailyCapTokens ? Number(capsFormData.dailyCapTokens) : null;
       const parsedMonthly = capsFormData.monthlyCapTokens
         ? Number(capsFormData.monthlyCapTokens)
         : null;
@@ -597,6 +632,23 @@ export default function SettingsPage() {
                               {getMaskedApiKey()}
                             </p>
                           </div>
+
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {getCapabilityEntries(
+                              providers.find((provider) => provider.name === config.provider)
+                            ).map(([name, enabled]) => (
+                              <span
+                                key={`${config.id}-${name}`}
+                                className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                                  enabled
+                                    ? 'bg-green-100 text-green-800'
+                                    : 'bg-gray-100 text-gray-500'
+                                }`}
+                              >
+                                {capabilityLabels[name] || name}
+                              </span>
+                            ))}
+                          </div>
                         </div>
                       </div>
 
@@ -657,8 +709,13 @@ export default function SettingsPage() {
                       >
                         <option value="">Select a provider</option>
                         {providers.map((provider) => (
-                          <option key={provider.name} value={provider.name}>
+                          <option
+                            key={provider.name}
+                            value={provider.name}
+                            disabled={getEnabledCapabilities(provider).length === 0}
+                          >
                             {provider.displayName}
+                            {getEnabledCapabilities(provider).length === 0 ? ' (Unavailable)' : ''}
                           </option>
                         ))}
                       </select>
@@ -667,10 +724,30 @@ export default function SettingsPage() {
                       )}
                     </div>
 
+                    {selectedProvider ? (
+                      <div className="rounded-md border border-gray-200 bg-gray-50 p-3">
+                        <p className="text-sm font-medium text-gray-700">Action availability</p>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {getCapabilityEntries(selectedProvider).map(([name, enabled]) => (
+                            <span
+                              key={`selected-provider-${name}`}
+                              className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                                enabled
+                                  ? 'bg-green-100 text-green-800'
+                                  : 'bg-gray-100 text-gray-500'
+                              }`}
+                            >
+                              {capabilityLabels[name] || name}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+
                     {/* API Key */}
                     <div>
                       <label htmlFor="api_key" className="block text-sm font-medium text-gray-700">
-                        API Key *
+                        API Key {selectedProviderRequiresApiKey ? '*' : '(optional)'}
                       </label>
                       <input
                         type="password"
@@ -678,7 +755,9 @@ export default function SettingsPage() {
                         value={formData.api_key}
                         onChange={(e) => setFormData({ ...formData, api_key: e.target.value })}
                         className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                        placeholder="sk-..."
+                        placeholder={
+                          selectedProviderRequiresApiKey ? 'sk-...' : 'Optional for this provider'
+                        }
                       />
                       {errors.api_key && (
                         <p className="mt-1 text-sm text-red-600">{errors.api_key}</p>

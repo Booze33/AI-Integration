@@ -17,5 +17,6 @@
 
 export { webhookRoutes, PROVIDERS } from './routes';
 export { WebhookQueueService, WEBHOOK_QUEUE_NAME } from './queue';
+export { WebhookWorkerService, getWebhookWorkerService, closeWebhookWorkerService } from './worker';
 export { verifyGitHub, verifyStripe, verifyGitLab, verifyHmac } from './verifiers';
 export type { WebhookJobData, WebhookJobResult, ProviderConfig, SignatureVerifier } from './types';

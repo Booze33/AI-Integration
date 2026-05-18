@@ -14,6 +14,7 @@ import { createChatRoutes } from './chat';
 import { registerChatWebSocket } from './chat/websocket';
 import { pipelineRoutes } from './pipeline';
 import { webhookRoutes } from './webhook';
+import { getWebhookWorkerService, closeWebhookWorkerService } from './webhook/worker';
 import { tenantConfigRoutes, setTenantConfigPool } from './providers/routes';
 import { createDashboardRoutes } from './dashboard/routes';
 import { createUsageCapsRoutes } from './usage-caps';
@@ -47,6 +48,7 @@ let auditService: AuditService | null = null;
 let auditCleanupInterval: NodeJS.Timeout | null = null;
 let httpServer: HttpServer | null = null;
 const openSockets = new Set<Socket>();
+let webhookWorkerCreated = false;
 let isShuttingDown = false;
 const SHUTDOWN_TIMEOUT_MS = Number(process.env.SHUTDOWN_TIMEOUT_MS || 15_000);
 const allowedCorsOrigins = env.CORS_ORIGIN.split(',')
@@ -300,6 +302,19 @@ async function startServer() {
       console.log('✅ Audit logging initialized');
     }
 
+    // Start webhook worker in-process so webhook jobs are consumed end-to-end.
+    // Route handlers enqueue jobs immediately; this worker processes them asynchronously.
+    const webhookWorker = getWebhookWorkerService();
+    webhookWorkerCreated = true;
+    webhookWorker
+      .waitUntilReady()
+      .then(() => {
+        console.log('✅ Webhook worker initialized');
+      })
+      .catch((error) => {
+        console.error('⚠️ Webhook worker is not ready:', error);
+      });
+
     const port = env.PORT;
     httpServer = createServer(app);
     registerChatWebSocket(httpServer, sharedPool!);
@@ -393,6 +408,14 @@ async function shutdown(): Promise<void> {
   if (auditCleanupInterval) {
     clearInterval(auditCleanupInterval);
     auditCleanupInterval = null;
+  }
+  try {
+    if (webhookWorkerCreated) {
+      await closeWebhookWorkerService();
+      console.log('✅ Webhook worker closed');
+    }
+  } catch (error) {
+    console.error('Error closing webhook worker:', error);
   }
   try {
     if (sharedPool) {

@@ -575,7 +575,7 @@ export class DeepgramProvider implements AIProvider {
       message:
         'Deepgram does not provide a chat API. Use OpenAI or Anthropic for chat completions.',
       statusCode: 501,
-      errorCode: 'not_implemented',
+      errorCode: 'PROVIDER_CAPABILITY_UNSUPPORTED',
       isRetryable: false,
     });
   }
@@ -593,7 +593,7 @@ export class DeepgramProvider implements AIProvider {
       message:
         'Deepgram does not provide a chat API. Use OpenAI or Anthropic for chat completions.',
       statusCode: 501,
-      errorCode: 'not_implemented',
+      errorCode: 'PROVIDER_CAPABILITY_UNSUPPORTED',
       isRetryable: false,
     });
   }
@@ -670,7 +670,7 @@ export class DeepgramProvider implements AIProvider {
       message:
         'Deepgram does not provide a text-to-speech API. Use OpenAI TTS or another provider for speech synthesis.',
       statusCode: 501,
-      errorCode: 'not_implemented',
+      errorCode: 'PROVIDER_CAPABILITY_UNSUPPORTED',
       isRetryable: false,
     });
   }
@@ -684,7 +684,7 @@ export class DeepgramProvider implements AIProvider {
       message:
         'Deepgram does not provide an embeddings API. Use OpenAI or another provider for embeddings.',
       statusCode: 501,
-      errorCode: 'not_implemented',
+      errorCode: 'PROVIDER_CAPABILITY_UNSUPPORTED',
       isRetryable: false,
     });
   }
@@ -698,7 +698,7 @@ export class DeepgramProvider implements AIProvider {
       message:
         'Deepgram does not provide an embeddings API. Use OpenAI or another provider for embeddings.',
       statusCode: 501,
-      errorCode: 'not_implemented',
+      errorCode: 'PROVIDER_CAPABILITY_UNSUPPORTED',
       isRetryable: false,
     });
   }

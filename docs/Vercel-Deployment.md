@@ -33,10 +33,16 @@ Set these variables in Vercel Project Settings -> Environment Variables.
 
 ### Optional
 
-| Variable                | Example          | Purpose                                              |
-| ----------------------- | ---------------- | ---------------------------------------------------- |
-| `NEXT_PUBLIC_APP_NAME`  | `AI Integration` | Display app name                                     |
-| `NEXT_PUBLIC_MOCK_MODE` | `false`          | Enable mock mode (`true` for demo-only environments) |
+| Variable                             | Example          | Purpose                                               |
+| ------------------------------------ | ---------------- | ----------------------------------------------------- |
+| `NEXT_PUBLIC_APP_NAME`               | `AI Integration` | Display app name                                      |
+| `NEXT_PUBLIC_MOCK_MODE`              | `false`          | Enable mock mode (`true` for demo-only environments)  |
+| `NEXT_PUBLIC_ENABLE_PROFILE_EDITING` | `false`          | Enables settings general-page profile editing UI path |
+
+Production safety check:
+
+- Frontend build now fails for production deployments when `NEXT_PUBLIC_MOCK_MODE=true`.
+- Keep mock mode disabled in production (`NEXT_PUBLIC_MOCK_MODE=false`).
 
 Important: this frontend expects `NEXT_PUBLIC_API_URL` (not `NEXT_PUBLIC_BACKEND_URL`).
 

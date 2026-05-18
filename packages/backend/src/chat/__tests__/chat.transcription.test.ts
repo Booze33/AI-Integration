@@ -23,6 +23,18 @@ vi.mock('../../auth/middleware', () => ({
     next();
   },
   requireViewer: (_req: any, _res: any, next: any) => next(),
+  requireTenant: () => (req: any, res: any, next: any) => {
+    const tenantId = req.user?.tenantId;
+    if (!tenantId) {
+      res.status(400).json({
+        error: 'Bad Request',
+        message: 'Tenant ID required in JWT token',
+      });
+      return;
+    }
+    req.tenantId = tenantId;
+    next();
+  },
 }));
 
 const streamCache = new Map<string, any>();
@@ -78,6 +90,20 @@ const mockCreateRealtimeSession = vi.fn(async (options?: any) => {
 const mockGetProvider = vi.fn();
 vi.mock('../../providers', () => ({
   getProvider: (...args: any[]) => mockGetProvider(...args),
+  getProviderForCapability: (...args: any[]) => mockGetProvider(...args),
+  ProviderCapabilityError: class ProviderCapabilityError extends Error {
+    capability: string;
+    provider: string;
+    supportedProviders: string[];
+
+    constructor(provider: string, capability: string, supportedProviders: string[]) {
+      super(`Provider "${provider}" does not support capability "${capability}"`);
+      this.name = 'ProviderCapabilityError';
+      this.capability = capability;
+      this.provider = provider;
+      this.supportedProviders = supportedProviders;
+    }
+  },
 }));
 
 function createMockPool(): Pool {
@@ -111,14 +137,19 @@ describe('Transcription Session Lifecycle', () => {
   });
 
   it('returns 501 when realtime transcription is not supported', async () => {
-    mockGetProvider.mockReturnValueOnce({
-      name: 'no-realtime-provider',
-      supportedModels: ['mock-model'],
-      chatStream: mockChatStream,
+    mockGetProvider.mockImplementationOnce(() => {
+      throw {
+        name: 'ProviderCapabilityError',
+        message: 'Provider "no-realtime-provider" does not support capability "realtimeTranscribe"',
+        provider: 'no-realtime-provider',
+        capability: 'realtimeTranscribe',
+        supportedProviders: ['deepgram'],
+      };
     });
 
     const res = await request(app).post('/api/chat/transcribe/session').send({}).expect(501);
-    expect(res.body.error).toBe('Transcription not supported');
+    expect(res.body.error).toBe('Provider capability not supported');
+    expect(res.body.code).toBe('PROVIDER_CAPABILITY_UNSUPPORTED');
   });
 
   it('accepts audio chunks for a valid active session', async () => {

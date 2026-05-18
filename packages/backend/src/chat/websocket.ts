@@ -3,7 +3,12 @@ import { randomUUID } from 'crypto';
 import { WebSocketServer, WebSocket } from 'ws';
 import type { Server } from 'http';
 import { Pool } from 'pg';
-import { getProvider, ChatMessage, ChatOptions } from '../providers';
+import {
+  getProviderForCapability,
+  ProviderCapabilityError,
+  ChatMessage,
+  ChatOptions,
+} from '../providers';
 import { UsageCapsService, estimateMessagesTokens, estimateTextTokens } from '../usage-caps';
 import { AuditService, logAudit } from '../audit';
 import { verifyToken, TokenPayload } from '../auth/jwt';
@@ -27,6 +32,32 @@ interface PingPayload {
 type ChatInboundPayload = ChatStartPayload | ChatAbortPayload | PingPayload;
 
 const ALLOWED_ROLES = new Set(['viewer', 'member', 'admin']);
+
+interface CapabilityErrorLike {
+  name?: string;
+  provider: string;
+  capability: string;
+  supportedProviders: string[];
+  message: string;
+}
+
+function isProviderCapabilityErrorLike(error: unknown): error is CapabilityErrorLike {
+  if (error instanceof ProviderCapabilityError) {
+    return true;
+  }
+
+  if (!error || typeof error !== 'object') {
+    return false;
+  }
+
+  const candidate = error as Partial<CapabilityErrorLike>;
+  return (
+    candidate.name === 'ProviderCapabilityError' &&
+    typeof candidate.provider === 'string' &&
+    typeof candidate.capability === 'string' &&
+    Array.isArray(candidate.supportedProviders)
+  );
+}
 
 function parseCookies(cookieHeader: string | undefined): Record<string, string> {
   const cookies: Record<string, string> = {};
@@ -235,7 +266,7 @@ export function registerChatWebSocket(server: Server, pool: Pool): void {
         });
 
         try {
-          const provider = getProvider();
+          const provider = getProviderForCapability('chatStream');
           let assistantText = '';
           let chunkIndex = 0;
           let streamFinished = false;
@@ -299,7 +330,8 @@ export function registerChatWebSocket(server: Server, pool: Pool): void {
             );
           }
 
-          const completionTokens = nativeUsage?.completionTokens ?? estimateTextTokens(assistantText);
+          const completionTokens =
+            nativeUsage?.completionTokens ?? estimateTextTokens(assistantText);
           const promptTokens = nativeUsage?.promptTokens ?? estimatedPromptTokens;
           const totalTokens = nativeUsage?.totalTokens ?? promptTokens + completionTokens;
           await usageCapsService.recordUsage({
@@ -314,10 +346,21 @@ export function registerChatWebSocket(server: Server, pool: Pool): void {
             isEstimated: !nativeUsage,
           });
         } catch (error) {
-          send(socket, {
-            type: 'error',
-            message: error instanceof Error ? error.message : 'Unknown stream error',
-          });
+          if (isProviderCapabilityErrorLike(error)) {
+            send(socket, {
+              type: 'error',
+              message: error.message,
+              code: 'PROVIDER_CAPABILITY_UNSUPPORTED',
+              capability: error.capability,
+              provider: error.provider,
+              supportedProviders: error.supportedProviders,
+            });
+          } else {
+            send(socket, {
+              type: 'error',
+              message: error instanceof Error ? error.message : 'Unknown stream error',
+            });
+          }
         } finally {
           isStreaming = false;
           isAborted = false;

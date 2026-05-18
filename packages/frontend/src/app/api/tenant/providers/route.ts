@@ -8,7 +8,7 @@ const MOCK_MODE = appConfig.mockMode;
 export async function GET(request: NextRequest) {
   try {
     const cookieHeader = request.headers.get('cookie') || '';
-    if (!cookieHeader && !MOCK_MODE) {
+    if (!cookieHeader) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -21,21 +21,57 @@ export async function GET(request: NextRequest) {
             name: 'openai',
             displayName: 'OpenAI',
             requiresApiKey: true,
+            capabilities: {
+              chat: true,
+              chatStream: true,
+              transcribe: true,
+              realtimeTranscribe: false,
+              speak: true,
+              embed: true,
+              embedBatch: true,
+            },
           },
           {
             name: 'anthropic',
             displayName: 'Anthropic',
             requiresApiKey: true,
+            capabilities: {
+              chat: true,
+              chatStream: true,
+              transcribe: false,
+              realtimeTranscribe: false,
+              speak: false,
+              embed: false,
+              embedBatch: false,
+            },
           },
           {
             name: 'deepgram',
             displayName: 'Deepgram',
             requiresApiKey: true,
+            capabilities: {
+              chat: false,
+              chatStream: false,
+              transcribe: true,
+              realtimeTranscribe: true,
+              speak: false,
+              embed: false,
+              embedBatch: false,
+            },
           },
           {
             name: 'elevenlabs',
             displayName: 'ElevenLabs',
             requiresApiKey: true,
+            capabilities: {
+              chat: false,
+              chatStream: false,
+              transcribe: false,
+              realtimeTranscribe: false,
+              speak: true,
+              embed: false,
+              embedBatch: false,
+            },
           },
         ],
       });

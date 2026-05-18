@@ -179,6 +179,15 @@ export interface ProviderInfo {
   name: string;
   displayName: string;
   requiresApiKey: boolean;
+  capabilities?: {
+    chat: boolean;
+    chatStream: boolean;
+    transcribe: boolean;
+    realtimeTranscribe: boolean;
+    speak: boolean;
+    embed: boolean;
+    embedBatch: boolean;
+  };
 }
 
 export interface TenantUsageCaps {
@@ -404,14 +413,37 @@ export class ApiClient {
   }
 
   async logoutAllDevices(): Promise<void> {
+    if (this.mockMode) {
+      return;
+    }
+
     await this.request('POST', '/api/auth/logout-all');
   }
 
   async getCurrentUser(): Promise<MeResponse> {
+    if (this.mockMode) {
+      return {
+        user: {
+          id: 'mock-user-id',
+          email: 'mock@example.com',
+          role: 'admin',
+          tenantId: 'mock-tenant',
+          createdAt: new Date().toISOString(),
+        },
+      };
+    }
+
     return this.request<MeResponse>('GET', '/api/auth/me');
   }
 
   async getActiveTokens(): Promise<ActiveTokensResponse> {
+    if (this.mockMode) {
+      return {
+        activeTokenCount: 1,
+        tokens: ['mock-refresh-token-id'],
+      };
+    }
+
     return this.request<ActiveTokensResponse>('GET', '/api/auth/tokens');
   }
 
@@ -570,21 +602,57 @@ export class ApiClient {
             name: 'openai',
             displayName: 'OpenAI',
             requiresApiKey: true,
+            capabilities: {
+              chat: true,
+              chatStream: true,
+              transcribe: true,
+              realtimeTranscribe: false,
+              speak: true,
+              embed: true,
+              embedBatch: true,
+            },
           },
           {
             name: 'anthropic',
             displayName: 'Anthropic',
             requiresApiKey: true,
+            capabilities: {
+              chat: true,
+              chatStream: true,
+              transcribe: false,
+              realtimeTranscribe: false,
+              speak: false,
+              embed: false,
+              embedBatch: false,
+            },
           },
           {
             name: 'deepgram',
             displayName: 'Deepgram',
             requiresApiKey: true,
+            capabilities: {
+              chat: false,
+              chatStream: false,
+              transcribe: true,
+              realtimeTranscribe: true,
+              speak: false,
+              embed: false,
+              embedBatch: false,
+            },
           },
           {
             name: 'elevenlabs',
             displayName: 'ElevenLabs',
             requiresApiKey: true,
+            capabilities: {
+              chat: false,
+              chatStream: false,
+              transcribe: false,
+              realtimeTranscribe: false,
+              speak: true,
+              embed: false,
+              embedBatch: false,
+            },
           },
         ],
       };

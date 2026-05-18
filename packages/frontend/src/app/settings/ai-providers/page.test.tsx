@@ -8,6 +8,7 @@ const apiClientMock = vi.hoisted(() => ({
   getCurrentUser: vi.fn(),
   getProviders: vi.fn(),
   getTenantConfigs: vi.fn(),
+  getTenantUsageCaps: vi.fn(),
   deleteTenantConfig: vi.fn(),
 }));
 
@@ -33,6 +34,7 @@ describe('AI Provider Settings error states', () => {
     apiClientMock.getCurrentUser.mockReset();
     apiClientMock.getProviders.mockReset();
     apiClientMock.getTenantConfigs.mockReset();
+    apiClientMock.getTenantUsageCaps.mockReset();
     apiClientMock.deleteTenantConfig.mockReset();
     vi.stubGlobal(
       'confirm',
@@ -55,7 +57,22 @@ describe('AI Provider Settings error states', () => {
       user: { id: 'u1', email: 'admin@example.com', role: 'admin' },
     });
     apiClientMock.getProviders.mockResolvedValueOnce({
-      data: [{ name: 'openai', displayName: 'OpenAI', requiresApiKey: true }],
+      data: [
+        {
+          name: 'openai',
+          displayName: 'OpenAI',
+          requiresApiKey: true,
+          capabilities: {
+            chat: true,
+            chatStream: true,
+            transcribe: true,
+            realtimeTranscribe: false,
+            speak: true,
+            embed: true,
+            embedBatch: true,
+          },
+        },
+      ],
     });
     apiClientMock.getTenantConfigs.mockResolvedValueOnce({
       data: [
@@ -70,6 +87,23 @@ describe('AI Provider Settings error states', () => {
         },
       ],
     });
+    apiClientMock.getTenantUsageCaps.mockResolvedValueOnce({
+      data: {
+        caps: {
+          tenantId: 'tenant-1',
+          dailyCapTokens: null,
+          monthlyCapTokens: null,
+          hardCapEnabled: true,
+        },
+        usage: {
+          tenantId: 'tenant-1',
+          dailyUsedTokens: 0,
+          monthlyUsedTokens: 0,
+          usageDateUtc: '2026-05-15',
+          usageMonthUtc: '2026-05-01',
+        },
+      },
+    });
     apiClientMock.deleteTenantConfig.mockRejectedValueOnce(new Error('Delete failed'));
 
     render(<SettingsPage />);
@@ -82,6 +116,85 @@ describe('AI Provider Settings error states', () => {
 
     await waitFor(() => {
       expect(screen.getByText('Delete failed')).toBeTruthy();
+    });
+  });
+
+  it('surfaces provider capability action availability and disables unavailable providers', async () => {
+    apiClientMock.getCurrentUser.mockResolvedValueOnce({
+      user: { id: 'u1', email: 'admin@example.com', role: 'admin' },
+    });
+    apiClientMock.getProviders.mockResolvedValueOnce({
+      data: [
+        {
+          name: 'openai',
+          displayName: 'OpenAI',
+          requiresApiKey: true,
+          capabilities: {
+            chat: true,
+            chatStream: true,
+            transcribe: true,
+            realtimeTranscribe: false,
+            speak: true,
+            embed: true,
+            embedBatch: true,
+          },
+        },
+        {
+          name: 'azure-openai',
+          displayName: 'Azure OpenAI',
+          requiresApiKey: true,
+          capabilities: {
+            chat: false,
+            chatStream: false,
+            transcribe: false,
+            realtimeTranscribe: false,
+            speak: false,
+            embed: false,
+            embedBatch: false,
+          },
+        },
+      ],
+    });
+    apiClientMock.getTenantConfigs.mockResolvedValueOnce({ data: [] });
+    apiClientMock.getTenantUsageCaps.mockResolvedValueOnce({
+      data: {
+        caps: {
+          tenantId: 'tenant-1',
+          dailyCapTokens: null,
+          monthlyCapTokens: null,
+          hardCapEnabled: true,
+        },
+        usage: {
+          tenantId: 'tenant-1',
+          dailyUsedTokens: 0,
+          monthlyUsedTokens: 0,
+          usageDateUtc: '2026-05-15',
+          usageMonthUtc: '2026-05-01',
+        },
+      },
+    });
+
+    render(<SettingsPage />);
+
+    await waitFor(() => {
+      expect(screen.getAllByRole('button', { name: 'Add Provider' }).length).toBeGreaterThan(0);
+    });
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Add Provider' })[0]);
+
+    const providerSelect = screen.getByLabelText('Provider *') as HTMLSelectElement;
+    const unavailableProviderOption = Array.from(providerSelect.options).find(
+      (option) => option.value === 'azure-openai'
+    );
+
+    expect(unavailableProviderOption?.disabled).toBe(true);
+
+    fireEvent.change(providerSelect, { target: { value: 'openai' } });
+
+    await waitFor(() => {
+      expect(screen.getByText('Action availability')).toBeTruthy();
+      expect(screen.getByText('Streaming Chat')).toBeTruthy();
+      expect(screen.getByText('Realtime Transcription')).toBeTruthy();
     });
   });
 });
